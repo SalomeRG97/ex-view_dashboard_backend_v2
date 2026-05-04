@@ -1,17 +1,17 @@
 require('dotenv').config();
 
 const express = require('express');
-const cors    = require('cors');
+const cors = require('cors');
 
 const { testConnection } = require('./db/connection');
-const dashboardRoutes    = require('./routes/dashboard');
+const dashboardRoutes = require('./routes/dashboard');
 
-const app  = express();
+const app = express();
 const PORT = process.env.SERVER_PORT || 3000;
 
 // ── CORS — Configuración de orígenes permitidos ──────────────
-const allowedOrigins = ['https://ex-view.com', 'http://localhost:5500'];
-app.use(cors({ 
+const allowedOrigins = ['https://ex-view.com', 'http://localhost:5500', 'https://salomerg97.github.io'];
+app.use(cors({
   origin: function (origin, callback) {
     // Permite requests sin origen (ej. curl, postman) o los permitidos
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
