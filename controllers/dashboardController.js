@@ -3,15 +3,16 @@ const { calculateMetrics } = require('../lib/metrics');
 
 // ============================================================
 // GET /dashboard-data
-// Query params: asset_name, total_paneles, puntos_calientes,
+// Query params: asset_name, total_paneles,
 //               capacidad_instalada_mw, unidad
+// Note: inefficiency is read from each record's JSON payload;
+//       puntos_calientes is no longer used for metric calculation.
 // ============================================================
 async function getDashboardData(req, res) {
   try {
     const {
       asset_name,
       total_paneles,
-      puntos_calientes,
       capacidad_instalada_mw,
       unidad,
       files_url,
@@ -23,8 +24,6 @@ async function getDashboardData(req, res) {
       errors.push('asset_name es requerido');
     if (!Number.isFinite(Number(total_paneles)) || Number(total_paneles) <= 0)
       errors.push('total_paneles debe ser un número positivo');
-    if (!Number.isFinite(Number(puntos_calientes)) || Number(puntos_calientes) <= 0)
-      errors.push('puntos_calientes debe ser un número positivo');
     if (!Number.isFinite(Number(capacidad_instalada_mw)) || Number(capacidad_instalada_mw) <= 0)
       errors.push('capacidad_instalada_mw debe ser un número positivo');
     if (!['MW', 'kW'].includes(unidad))
@@ -35,8 +34,13 @@ async function getDashboardData(req, res) {
     }
 
     // --- Query anomalies (READ ONLY) ---
+    // MAX(JSON_EXTRACT) returns the inefficiency for the type
+    // (same value for all records of that type; NULL if field absent).
     const [anomalyRows] = await pool.execute(
-      `SELECT type, COUNT(*) AS anomalias
+      `SELECT
+         type,
+         COUNT(*)                                    AS anomalias,
+         MAX(JSON_EXTRACT(observation_metadata, '$.inefficiency'))   AS inefficiency
        FROM ObservationSummary
        WHERE asset_name = ?
        GROUP BY type
@@ -46,7 +50,6 @@ async function getDashboardData(req, res) {
 
     const config = {
       total_paneles:          Number(total_paneles),
-      puntos_calientes:       Number(puntos_calientes),
       capacidad_instalada_mw: Number(capacidad_instalada_mw),
       unidad,
     };

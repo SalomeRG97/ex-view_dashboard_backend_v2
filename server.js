@@ -7,10 +7,10 @@ const { testConnection } = require('./db/connection');
 const dashboardRoutes = require('./routes/dashboard');
 
 const app = express();
-const PORT = process.env.PORT || process.env.SERVER_PORT || 3000;
+const PORT = process.env.PORT || process.env.SERVER_PORT || 5000;
 
 // ── CORS — Configuración de orígenes permitidos ──────────────
-const allowedOrigins = ['https://ex-view.com', 'http://localhost:5500', 'https://salomerg97.github.io'];
+const allowedOrigins = ['https://ex-view.com', 'http://localhost:5500', 'https://salomerg97.github.io', 'http://127.0.0.1:5500'];
 app.use(cors({
   origin: function (origin, callback) {
     // Permite requests sin origen (ej. curl, postman) o los permitidos
