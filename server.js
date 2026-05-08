@@ -15,9 +15,9 @@ const PORT = process.env.PORT || process.env.SERVER_PORT || 5000;
 // y evitamos que Express o middlewares bloqueen con X-Frame-Options.
 app.use((req, res, next) => {
   res.removeHeader('X-Frame-Options');
-  
+
   // Especifica aquí los dominios permitidos para embeber tu iframe
-  const iframeDomains = "'self' https://ex-view.com";
+  const iframeDomains = "'self' https://ex-view.com https://d48p9darmym8b.cloudfront.net";
   res.setHeader('Content-Security-Policy', `frame-ancestors ${iframeDomains};`);
   next();
 });
