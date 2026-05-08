@@ -13,6 +13,7 @@ async function getDashboardData(req, res) {
     const {
       installation,
       total_paneles,
+      modulos_desconectados,
       capacidad_instalada_mw,
       unidad,
       files_url,
@@ -63,8 +64,16 @@ async function getDashboardData(req, res) {
       });
     }
 
+    // Inject modulos_desconectados into the string_failure row (if present)
+    // so calculateMetrics can use it as recuento for that special type.
+    const enrichedRows = anomalyRows.map(row =>
+      row.type === 'string_failure'
+        ? { ...row, modulos_desconectados: Number(modulos_desconectados) || 0 }
+        : row
+    );
+
     // --- Calculate metrics ---
-    const metrics = calculateMetrics(anomalyRows, config);
+    const metrics = calculateMetrics(enrichedRows, config);
 
     return res.status(200).json({
       data: metrics,
