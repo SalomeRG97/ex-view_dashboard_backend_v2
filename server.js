@@ -2,12 +2,35 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 
 const { testConnection } = require('./db/connection');
 const dashboardRoutes = require('./routes/dashboard');
 
 const app = express();
 const PORT = process.env.PORT || process.env.SERVER_PORT || 5000;
+
+// ── Seguridad e iframes ──────────────────────────────────────
+// Configuramos Content-Security-Policy para permitir iframe embebido
+// y evitamos que Express o middlewares bloqueen con X-Frame-Options.
+app.use((req, res, next) => {
+  res.removeHeader('X-Frame-Options');
+  
+  // Especifica aquí los dominios permitidos para embeber tu iframe
+  const iframeDomains = "'self' https://ex-view.com";
+  res.setHeader('Content-Security-Policy', `frame-ancestors ${iframeDomains};`);
+  next();
+});
+
+// ── Rate Limiting ────────────────────────────────────────────
+// MVP: Limitar a 100 peticiones cada 15 min por IP
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { error: 'Demasiadas peticiones desde esta IP. Intenta más tarde.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // ── CORS — Configuración de orígenes permitidos ──────────────
 const allowedOrigins = ['https://ex-view.com', 'http://localhost:5500', 'https://salomerg97.github.io', 'http://127.0.0.1:5500'];
@@ -27,6 +50,9 @@ app.use(express.urlencoded({ extended: true }));
 
 // ── API Routes ──────────────────────────────────────────────
 // Montadas en / → GET /assets, GET /dashboard-data
+// Aplicamos el rate limiter a estas rutas críticas
+app.use('/assets', apiLimiter);
+app.use('/dashboard-data', apiLimiter);
 app.use('/', dashboardRoutes);
 
 // ── 404 ─────────────────────────────────────────────────────
