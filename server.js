@@ -53,6 +53,7 @@ app.use(express.urlencoded({ extended: true }));
 // Aplicamos el rate limiter a estas rutas críticas
 app.use('/assets', apiLimiter);
 app.use('/dashboard-data', apiLimiter);
+app.use('/login', apiLimiter);
 app.use('/', dashboardRoutes);
 
 // ── 404 ─────────────────────────────────────────────────────
@@ -72,6 +73,7 @@ app.use((_req, res) => {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 EX-VIEW Solar API corriendo en el puerto ${PORT}`);
     console.log(`   GET /assets?q=texto`);
-    console.log(`   GET /dashboard-data?asset_name=...&total_paneles=...&puntos_calientes=...&capacidad_instalada_mw=...&unidad=MW`);
+    console.log(`   POST /login`);
+    console.log(`   GET /dashboard-data?installation=...&total_paneles=...&puntos_calientes=...&capacidad_instalada_mw=...&unidad=MW`);
   });
 })();

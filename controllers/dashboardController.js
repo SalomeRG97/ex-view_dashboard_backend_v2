@@ -1,9 +1,9 @@
-const { pool }             = require('../db/connection');
+const { pool } = require('../db/connection');
 const { calculateMetrics } = require('../lib/metrics');
 
 // ============================================================
 // GET /dashboard-data
-// Query params: asset_name, total_paneles,
+// Query params: installation, total_paneles,
 //               capacidad_instalada_mw, unidad
 // Note: inefficiency is read from each record's JSON payload;
 //       puntos_calientes is no longer used for metric calculation.
@@ -11,7 +11,7 @@ const { calculateMetrics } = require('../lib/metrics');
 async function getDashboardData(req, res) {
   try {
     const {
-      asset_name,
+      installation,
       total_paneles,
       capacidad_instalada_mw,
       unidad,
@@ -20,8 +20,8 @@ async function getDashboardData(req, res) {
 
     // --- Validation ---
     const errors = [];
-    if (!asset_name || typeof asset_name !== 'string' || !asset_name.trim())
-      errors.push('asset_name es requerido');
+    if (!installation || typeof installation !== 'string' || !installation.trim())
+      errors.push('installation es requerido');
     if (!Number.isFinite(Number(total_paneles)) || Number(total_paneles) <= 0)
       errors.push('total_paneles debe ser un número positivo');
     if (!Number.isFinite(Number(capacidad_instalada_mw)) || Number(capacidad_instalada_mw) <= 0)
@@ -45,21 +45,21 @@ async function getDashboardData(req, res) {
        WHERE asset_name = ?
        GROUP BY type
        ORDER BY anomalias DESC`,
-      [asset_name.trim()]
+      [installation.trim()]
     );
 
     const config = {
-      total_paneles:          Number(total_paneles),
+      total_paneles: Number(total_paneles),
       capacidad_instalada_mw: Number(capacidad_instalada_mw),
       unidad,
     };
 
     if (!anomalyRows.length) {
       return res.status(200).json({
-        data:       [],
-        files_url:  files_url || null,
+        data: [],
+        files_url: files_url || null,
         unidad,
-        asset_name: asset_name.trim(),
+        installation: installation.trim(),
       });
     }
 
@@ -67,10 +67,10 @@ async function getDashboardData(req, res) {
     const metrics = calculateMetrics(anomalyRows, config);
 
     return res.status(200).json({
-      data:       metrics,
-      files_url:  files_url || null,
+      data: metrics,
+      files_url: files_url || null,
       unidad,
-      asset_name: asset_name.trim(),
+      installation: installation.trim(),
     });
   } catch (err) {
     console.error('[getDashboardData]', err);
@@ -103,4 +103,27 @@ async function getAssets(req, res) {
   }
 }
 
-module.exports = { getDashboardData, getAssets };
+// ============================================================
+// POST /login
+// Auth simple MVP
+// ============================================================
+async function loginAdmin(req, res) {
+  try {
+    const { username, password } = req.body;
+
+    // Credenciales (puedes cambiarlas en las variables de entorno de Render)
+    const validUser = process.env.ADMIN_USER || 'aDminEXvIEW';
+    const validPass = process.env.ADMIN_PASS || 'solarSuperaDmin2026';
+
+    if (username === validUser && password === validPass) {
+      return res.status(200).json({ success: true });
+    }
+
+    return res.status(401).json({ success: false, error: 'Credenciales incorrectas' });
+  } catch (err) {
+    console.error('[loginAdmin]', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+}
+
+module.exports = { getDashboardData, getAssets, loginAdmin };
