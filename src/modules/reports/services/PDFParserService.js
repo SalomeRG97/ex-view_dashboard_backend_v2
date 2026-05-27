@@ -1,0 +1,193 @@
+const { PDFParse } = require('pdf-parse');
+
+// Tipos de anomalías reconocidos (expandible)
+const ANOMALY_TYPES = [
+  { type: 'soiling',        label: 'Soiling / Suciedad',      keywords: ['soiling', 'suciedad', 'polvo', 'dirt'] },
+  { type: 'shading',        label: 'Sombreado',                keywords: ['sombreado', 'sombra', 'shading', 'shadow'] },
+  { type: 'string_failure', label: 'Falla de String',          keywords: ['string failure', 'falla de string', 'string desconectado'] },
+  { type: 'hotspot',        label: 'Punto Caliente / Hotspot', keywords: ['hotspot', 'punto caliente', 'hot spot'] },
+  { type: 'bypass_diode',   label: 'Diodo Bypass',             keywords: ['bypass diode', 'diodo bypass', 'diodo by-pass'] },
+  { type: 'delamination',   label: 'Delaminación',             keywords: ['delamination', 'delaminación', 'delaminacion'] },
+  { type: 'pid',            label: 'PID',                      keywords: ['pid', 'potential induced degradation'] },
+];
+
+class PDFParserService {
+  /**
+   * Extrae texto y metadata básica del PDF.
+   * @param {Buffer} buffer - Buffer del PDF
+   * @returns {Promise<{text: string, numPages: number, info: object, pages: Array}>}
+   */
+  async parse(buffer) {
+    // pdf-parse v2 requiere Uint8Array en lugar de Buffer de Node
+    const uint8 = new Uint8Array(buffer);
+    const parser = new PDFParse(uint8);
+    await parser.load();
+    
+    const textObj = await parser.getText();
+    const info = await parser.getInfo();
+    
+    const text = textObj?.text || '';
+    const numPages = info?.total || textObj?.total || 0;
+    
+    return {
+      text,
+      numPages,
+      info: info?.info || {},
+      pages: textObj?.pages || [],
+    };
+  }
+
+  /**
+   * Detecta las anomalías presentes en el texto del PDF.
+   * @param {string} text - Texto extraído del PDF
+   * @returns {Array<{type, label, foundAt}>}
+   */
+  detectAnomalies(text) {
+    const lower = text.toLowerCase();
+    const found = [];
+
+    for (const anomaly of ANOMALY_TYPES) {
+      const match = anomaly.keywords.some(k => lower.includes(k));
+      if (match) {
+        found.push({ type: anomaly.type, label: anomaly.label });
+      }
+    }
+
+    return found;
+  }
+
+  /**
+   * Extrae todas las entradas de la Tabla de Contenido del PDF.
+   * @param {Array} pages - Páginas del PDF obtenidas del parser
+   * @param {number} numPages - Número total de páginas
+   * @returns {Array<{title, originalPageNum, isSub}>}
+   */
+  parseTOCEntries(pages, numPages) {
+    if (!pages || !Array.isArray(pages) || pages.length === 0) {
+      return [];
+    }
+
+    // Buscar la página de la Tabla de Contenido (usualmente en la hoja 2)
+    const tocPage = pages.slice(0, 5).find(p => p.text && p.text.includes('TABLA DE CONTENIDO'));
+    if (!tocPage) return [];
+
+    const lines = tocPage.text.split('\n');
+    const tocEntries = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      // Expresión regular robusta para detectar páginas y títulos del índice
+      const match = trimmed.match(/^(?:\.\s*)*(\d+)\s*\t+\s*(.+?)(?:\s*\.+\s*)*$/) ||
+                    trimmed.match(/^(?:\.\s*)*(\d+)\s+(.+?)(?:\s*\.+\s*)*$/);
+
+      if (match) {
+        const pageNum = parseInt(match[1], 10);
+        const title = match[2].trim().replace(/\.+$/, '').trim();
+        const isSub = line.trim().startsWith('.');
+        tocEntries.push({ title, originalPageNum: pageNum, isSub });
+      }
+    }
+
+    // Ordenar las entradas de la TOC por número de página
+    tocEntries.sort((a, b) => a.originalPageNum - b.originalPageNum);
+    return tocEntries;
+  }
+
+  /**
+   * Intenta detectar rangos de páginas para cada anomalía basado en la TOC del PDF.
+   * Retorna heurísticas aproximadas o rangos exactos si hay Tabla de Contenido.
+   * @param {string} text
+   * @param {number} numPages
+   * @param {Array} detectedAnomalies
+   * @param {Array} [pages] - Array opcional de objetos de páginas para análisis estructurado
+   * @returns {Array<{type, label, pageStart, pageEnd}>}
+   */
+  detectPageRanges(text, numPages, detectedAnomalies, pages) {
+    const tocEntries = this.parseTOCEntries(pages, numPages);
+
+    if (tocEntries.length > 0) {
+      const sections = [];
+
+      for (const entry of tocEntries) {
+        const titleLower = entry.title.toLowerCase();
+
+        // Buscar si esta entrada corresponde a alguna anomalía definida
+        let matchedType = null;
+        for (const anomaly of ANOMALY_TYPES) {
+          const isMatch = anomaly.type === 'string_failure'
+            ? titleLower.includes('string')
+            : anomaly.keywords.some(k => titleLower.includes(k));
+
+          if (isMatch) {
+            matchedType = anomaly;
+            break;
+          }
+        }
+
+        if (matchedType) {
+          const pageStart = entry.originalPageNum;
+          let pageEnd = numPages;
+
+          // Encontrar la siguiente entrada del índice con número de página estrictamente mayor
+          const nextEntry = tocEntries.find(e => e.originalPageNum > pageStart);
+          if (nextEntry) {
+            pageEnd = nextEntry.originalPageNum - 1;
+          }
+
+          sections.push({
+            type: matchedType.type,
+            label: entry.title, // Conservar el nombre exacto de la anomalía de la TOC
+            pageStart,
+            pageEnd,
+          });
+        }
+      }
+
+      if (sections.length > 0) {
+        return sections;
+      }
+    }
+
+    // --- ALGORITMO DE RESPALDO (BACKWARD COMPATIBILITY) ---
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const sections = [];
+
+    for (const anomaly of detectedAnomalies) {
+      let pageStart = 1;
+      let pageEnd = numPages;
+      let foundPage = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const lineLower = lines[i].toLowerCase();
+        const isMatch = anomaly.type === 'string_failure'
+          ? lineLower.includes('string')
+          : ANOMALY_TYPES.find(a => a.type === anomaly.type)
+              ?.keywords.some(k => lineLower.includes(k));
+
+        if (isMatch) {
+          // Busca un número de página en la misma línea o la siguiente
+          const pageNumMatch = (lines[i] + ' ' + (lines[i + 1] || '')).match(/\b(\d+)\b/);
+          if (pageNumMatch) {
+            pageStart = parseInt(pageNumMatch[1], 10);
+            pageEnd = Math.min(pageStart + 10, numPages); // estimado: 10 páginas por sección
+            foundPage = true;
+            break;
+          }
+        }
+      }
+
+      sections.push({
+        type: anomaly.type,
+        label: anomaly.label,
+        pageStart: foundPage ? pageStart : 1,
+        pageEnd:   foundPage ? pageEnd   : numPages,
+      });
+    }
+
+    return sections;
+  }
+}
+
+module.exports = new PDFParserService();

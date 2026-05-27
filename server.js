@@ -6,6 +6,8 @@ const rateLimit = require('express-rate-limit');
 
 const { testConnection } = require('./db/connection');
 const dashboardRoutes = require('./routes/dashboard');
+const adminRoutes = require('./src/routes/index');
+const errorHandler = require('./src/middlewares/error.middleware');
 
 const app = express();
 const PORT = process.env.PORT || process.env.SERVER_PORT || 5000;
@@ -33,17 +35,8 @@ const apiLimiter = rateLimit({
 });
 
 // ── CORS — Configuración de orígenes permitidos ──────────────
-const allowedOrigins = ['https://ex-view.com', 'http://localhost:5500', 'https://salomerg97.github.io', 'http://127.0.0.1:5500'];
-app.use(cors({
-  origin: function (origin, callback) {
-    // Permite requests sin origen (ej. curl, postman) o los permitidos
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('No permitido por CORS'));
-    }
-  }
-}));
+const allowedOrigins = ['https://ex-view.com', 'http://localhost:5500', 'http://localhost:3000', 'https://salomerg97.github.io', 'http://127.0.0.1:5500', 'http://127.0.0.1:3000'];
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -54,7 +47,11 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/assets', apiLimiter);
 app.use('/dashboard-data', apiLimiter);
 app.use('/login', apiLimiter);
+app.use('/api', adminRoutes);
 app.use('/', dashboardRoutes);
+
+// ── Error Handler (Multer, validaciones, etc.) ──────────────
+app.use(errorHandler);
 
 // ── 404 ─────────────────────────────────────────────────────
 app.use((_req, res) => {

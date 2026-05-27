@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+model Dashboard {
+  id               String    @id @default(uuid())
+  installationName String
+  formData         Json
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  reports          Report[]
+
+  @@map("dashboards")
+}
+
+model Report {
+  id           String        @id @default(uuid())
+  dashboardId  String
+  originalName String
+  storagePath  String        // path relativo al servidor
+  fileSize     Int
+  status       ReportStatus  @default(UPLOADED)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  dashboard    Dashboard     @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  sections     ReportSection[]
+
+  @@map("reports")
+}
+
+enum ReportStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+}
+
+model ReportSection {
+  id          String   @id @default(uuid())
+  reportId    String
+  type        String   // soiling | shading | string_failure | hotspot | etc.
+  label       String   // Nombre legible
+  pageStart   Int
+  pageEnd     Int
+  imagePaths  Json     // array de rutas a imágenes procesadas
+
+  report      Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@map("report_sections")
+}
