@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
@@ -21,13 +22,13 @@
     "pdf-parse": "^2.4.5",
     "pdf2pic": "^3.2.0",
     "pg": "^8.21.0",
+    "prisma": "^7.8.0",
     "puppeteer": "^25.0.2",
     "sharp": "^0.34.5",
     "uuid": "^9.0.1",
     "basic-ftp": "^5.0.5"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0",
-    "prisma": "^7.8.0"
+    "nodemon": "^3.1.0"
   }
 }

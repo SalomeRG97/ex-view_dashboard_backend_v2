@@ -197,6 +197,7 @@ class PageRenderService {
       // Lanzar Puppeteer
       browser = await puppeteer.launch({
         headless: 'new',
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
         protocolTimeout: 300_000, // 5 minutos para comunicación CDP
         args: [
           '--no-sandbox',
