@@ -1,6 +1,9 @@
 FROM node:22
 
-# Instalar dependencias del sistema requeridas para Poppler y Puppeteer
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+# Dependencias Linux
 RUN apt-get update && apt-get install -y \
     poppler-utils \
     chromium \
@@ -14,26 +17,26 @@ RUN apt-get update && apt-get install -y \
     libnss3 \
     libxss1 \
     xdg-utils \
+    ca-certificates \
+    wget \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Establecer directorio de trabajo
 WORKDIR /app
 
-# Copiar archivos de dependencias
-COPY package*.json ./
-
-# Instalar dependencias (esto ejecutará postinstall automáticamente)
-RUN npm install
-
-# Copiar el resto del código (excepto lo excluido en .dockerignore)
+# Copiar TODO el proyecto primero
 COPY . .
 
-# Generar Prisma Client (por seguridad extra, aunque el postinstall debería hacerlo)
+# Instalar dependencias
+RUN npm install
+
+# Generar Prisma Client
 RUN npx prisma generate
 
-# Exponer el puerto
+# Verificaciones
+RUN pdftoppm -v
+RUN chromium --version
+
 EXPOSE 3000
 
-# Comando de inicio
 CMD ["npm", "start"]
