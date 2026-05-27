@@ -1,4 +1,4 @@
-FROM node:20
+FROM node:22
 
 # Instalar dependencias del sistema requeridas para Poppler y Puppeteer
 RUN apt-get update && apt-get install -y \
