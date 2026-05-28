@@ -43,7 +43,11 @@ class ReportController {
 
       const buffer = await storageService.download(report.storagePath);
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${report.originalName}"`);
+      if (req.query.inline === 'true') {
+        res.setHeader('Content-Disposition', `inline; filename="${report.originalName}"`);
+      } else {
+        res.setHeader('Content-Disposition', `attachment; filename="${report.originalName}"`);
+      }
       res.send(buffer);
     } catch (err) { next(err); }
   }

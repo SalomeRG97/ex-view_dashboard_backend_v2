@@ -46,7 +46,7 @@ async function getDashboardData(req, res) {
        WHERE asset_name = ?
        GROUP BY type
        ORDER BY anomalias DESC`,
-      [installation.trim()]
+      [installation]
     );
 
     const config = {
@@ -60,7 +60,7 @@ async function getDashboardData(req, res) {
         data: [],
         files_url: files_url || null,
         unidad,
-        installation: installation.trim(),
+        installation: installation,
       });
     }
 
@@ -79,7 +79,7 @@ async function getDashboardData(req, res) {
       data: metrics,
       files_url: files_url || null,
       unidad,
-      installation: installation.trim(),
+      installation: installation,
     });
   } catch (err) {
     console.error('[getDashboardData]', err);

@@ -86,6 +86,16 @@ class ReportService {
     if (report.originalName) {
       report.originalName = this.fixUtf8Encoding(report.originalName);
     }
+    try {
+      const urlOrPath = storageService.getPublicUrl(report.storagePath);
+      if (urlOrPath && urlOrPath.startsWith('http')) {
+        report.publicUrl = urlOrPath;
+      } else {
+        report.publicUrl = null;
+      }
+    } catch (e) {
+      report.publicUrl = null;
+    }
     return report;
   }
 

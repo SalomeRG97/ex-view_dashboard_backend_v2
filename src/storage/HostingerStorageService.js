@@ -298,7 +298,8 @@ class HostingerStorageService extends StorageService {
    */
   getPublicUrl(filePath) {
     const normalized = filePath.replace(/\\/g, '/');
-    return `${this.publicUrl}/${normalized}`;
+    // encodeURI codificará espacios y caracteres especiales pero preservará los '/'
+    return `${this.publicUrl}/${encodeURI(normalized)}`;
   }
 }
 

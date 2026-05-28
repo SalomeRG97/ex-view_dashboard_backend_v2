@@ -19,7 +19,7 @@ app.use((req, res, next) => {
   res.removeHeader('X-Frame-Options');
 
   // Especifica aquí los dominios permitidos para embeber tu iframe
-  const iframeDomains = "'self' https://ex-view.com https://d48p9darmym8b.cloudfront.net";
+  const iframeDomains = "'self' https://ex-view.com https://d48p9darmym8b.cloudfront.net http://localhost:3000 http://127.0.0.1:3000 http://localhost:5500 http://127.0.0.1:5500";
   res.setHeader('Content-Security-Policy', `frame-ancestors ${iframeDomains};`);
   next();
 });
