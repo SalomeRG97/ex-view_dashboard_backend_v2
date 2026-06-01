@@ -10,6 +10,7 @@ const adminRoutes = require('./src/routes/index');
 const errorHandler = require('./src/middlewares/error.middleware');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || process.env.SERVER_PORT || 5000;
 
 // ── Seguridad e iframes ──────────────────────────────────────
