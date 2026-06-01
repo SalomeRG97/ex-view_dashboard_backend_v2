@@ -2,13 +2,21 @@ const { PDFParse } = require('pdf-parse');
 
 // Tipos de anomalías reconocidos (expandible)
 const ANOMALY_TYPES = [
-  { type: 'soiling',        label: 'Soiling / Suciedad',      keywords: ['soiling', 'suciedad', 'polvo', 'dirt'] },
-  { type: 'shading',        label: 'Sombreado',                keywords: ['sombreado', 'sombra', 'shading', 'shadow'] },
-  { type: 'string_failure', label: 'Falla de String',          keywords: ['string failure', 'falla de string', 'string desconectado'] },
-  { type: 'hotspot',        label: 'Punto Caliente / Hotspot', keywords: ['hotspot', 'punto caliente', 'hot spot'] },
-  { type: 'bypass_diode',   label: 'Diodo Bypass',             keywords: ['bypass diode', 'diodo bypass', 'diodo by-pass'] },
-  { type: 'delamination',   label: 'Delaminación',             keywords: ['delamination', 'delaminación', 'delaminacion'] },
-  { type: 'pid',            label: 'PID',                      keywords: ['pid', 'potential induced degradation'] },
+  { type: 'hotspot_critical',     label: 'PC Crítico',          keywords: ['pc crítico', 'pc critico', 'crítico', 'critico', 'hotspot critical', 'punto caliente crítico', 'punto caliente critico'] },
+  { type: 'dba',                  label: 'DBA',                 keywords: ['dba'] },
+  { type: 'hotspot_mild',         label: 'PC Leve',             keywords: ['pc leve', 'leve', 'hotspot mild', 'punto caliente leve'] },
+  { type: 'shading',              label: 'Sombras',             keywords: ['sombreado', 'shading'] },
+  { type: 'shadow',               label: 'Sombras',             keywords: ['shadow', 'sombra', 'sombras'] },
+  { type: 'hotspot_permissible',  label: 'PC Permisible',       keywords: ['pc permisible', 'permisible', 'hotspot permissible', 'punto caliente permisible'] },
+  { type: 'dirt',                 label: 'Suciedad',            keywords: ['suciedad', 'dirt', 'polvo'] },
+  { type: 'vegetation',           label: 'Vegetación',          keywords: ['vegetación', 'vegetacion', 'vegetation', 'planta', 'maleza'] },
+  { type: 'soiling',              label: 'Soiling',             keywords: ['soiling'] },
+  { type: 'pid',                  label: 'PID',                 keywords: ['pid', 'potential induced degradation'] },
+  { type: 'diode_failure',        label: 'Falla en diodo',      keywords: ['diode failure', 'falla en diodo', 'diodo bypass', 'diodo by-pass', 'bypass diode', 'falla de diodo', 'bypass_diode', 'falla en diodo bypass', 'falla de diodo bypass'] },
+  { type: 'string_failure',       label: 'String desconectado', keywords: ['string failure', 'falla de string', 'string desconectado', 'string_failure', 'desconectado', 'string'] },
+  { type: 'other',                label: 'Otros',               keywords: ['otros', 'other'] },
+  { type: 'broken_glass_hotspot', label: 'Daño físico',         keywords: ['broken glass', 'daño físico', 'dano fisico', 'broken_glass_hotspot', 'daño fisico', 'daño fisico por hotspot', 'vidrio roto', 'daño físico'] },
+  { type: 'reverse_polarity',     label: 'Polaridad inversa',   keywords: ['reverse polarity', 'polaridad inversa'] },
 ];
 
 class PDFParserService {
