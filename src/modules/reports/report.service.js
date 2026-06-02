@@ -403,16 +403,44 @@ class ReportService {
 
   /**
    * Obtiene o genera la imagen original de una página específica.
+   * Estrategia de búsqueda:
+   *   1. Verificar si existe en original-pages/ (pre-renderizada o cacheada)
+   *   2. Buscar en las secciones procesadas del reporte (hotspot_mild/, soiling/, etc.)
+   *   3. Solo como último recurso, descargar el PDF y renderizar al vuelo
+   *      (con límite de tamaño para evitar timeouts en Render)
    */
   async getOrCreatePageImage(reportId, pageNum) {
+    // 1. Fast path: ya existe la imagen original pre-renderizada
     const imgRelPath = `processed/${reportId}/original-pages/page-${pageNum}.jpg`;
     const exists = await storageService.exists(imgRelPath);
     if (exists) {
       return imgRelPath;
     }
 
-    // Si no existe, renderizar al vuelo
+    // 2. Buscar en las imágenes de secciones ya procesadas
     const report = await this.getReportById(reportId);
+    if (report.sections && report.sections.length > 0) {
+      for (const section of report.sections) {
+        if (pageNum >= section.pageStart && pageNum <= section.pageEnd) {
+          const sectionImgPath = `processed/${reportId}/${section.type}/page-${pageNum}.jpg`;
+          const sectionExists = await storageService.exists(sectionImgPath);
+          if (sectionExists) {
+            console.log(`[ReportService] Página ${pageNum} encontrada en sección ${section.type}`);
+            return sectionImgPath;
+          }
+        }
+      }
+    }
+
+    // 3. Fallback: renderizar al vuelo (solo para PDFs de tamaño manejable)
+    const MAX_ON_THE_FLY_SIZE = 50 * 1024 * 1024; // 50 MB
+    if (report.fileSize > MAX_ON_THE_FLY_SIZE) {
+      throw new Error(
+        `La página ${pageNum} no está disponible para visualización inmediata. ` +
+        `El PDF es demasiado grande (${Math.round(report.fileSize / 1024 / 1024)} MB) para renderizar al vuelo.`
+      );
+    }
+
     const pdfExists = await storageService.exists(report.storagePath);
     if (!pdfExists) {
       throw new Error('No se encontró el archivo PDF original en el almacenamiento.');
