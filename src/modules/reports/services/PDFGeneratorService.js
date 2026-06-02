@@ -20,7 +20,7 @@ class PDFGeneratorService {
 
       fs.writeFileSync(tempFilePath, html, 'utf8');
 
-      browser = await puppeteer.launch({
+      const launchOptions = {
         headless: 'new',
         protocolTimeout: 300000, // 5 minutos para evitar timeouts de protocolo en PDFs grandes
         args: [
@@ -32,7 +32,13 @@ class PDFGeneratorService {
           '--allow-file-access-from-files',
           '--disable-web-security',
         ],
-      });
+      };
+
+      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      }
+
+      browser = await puppeteer.launch(launchOptions);
 
       const page = await browser.newPage();
 

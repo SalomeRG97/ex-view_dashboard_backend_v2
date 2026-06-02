@@ -26,7 +26,33 @@ class ReportController {
   async getById(req, res, next) {
     try {
       const report = await reportService.getReportById(req.params.id);
-      res.status(200).json(report);
+      const numPages = await reportService.getReportPageCount(report);
+      res.status(200).json({ ...report, numPages });
+    } catch (err) { next(err); }
+  }
+
+  // GET /api/reports/:id/pages/:pageNum (acceso cliente también)
+  async getPageImage(req, res, next) {
+    try {
+      const { id, pageNum } = req.params;
+      const pageNumber = parseInt(pageNum, 10);
+      if (isNaN(pageNumber) || pageNumber < 1) {
+        return res.status(400).json({ error: 'Número de página inválido' });
+      }
+
+      const imgPath = await reportService.getOrCreatePageImage(id, pageNumber);
+      
+      // Añadir cabeceras HTTP de caché
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+
+      const storageService = require('../../storage/storageFactory');
+      if (process.env.STORAGE_PROVIDER === 'hostinger') {
+        const publicUrl = storageService.getPublicUrl(imgPath);
+        return res.redirect(publicUrl);
+      } else {
+        const localPath = storageService.getPublicUrl(imgPath);
+        return res.sendFile(localPath);
+      }
     } catch (err) { next(err); }
   }
 

@@ -362,6 +362,73 @@ class ReportService {
 
     return await reportRepository.delete(id);
   }
+
+  /**
+   * Obtiene la cantidad total de páginas del reporte (desde metadata.json o analizando el PDF).
+   */
+  async getReportPageCount(report) {
+    const metadataPath = `processed/${report.id}/metadata.json`;
+    const exists = await storageService.exists(metadataPath);
+    if (exists) {
+      try {
+        const buffer = await storageService.download(metadataPath);
+        const meta = JSON.parse(buffer.toString('utf8'));
+        if (meta && typeof meta.numPages === 'number') {
+          return meta.numPages;
+        }
+      } catch (err) {
+        console.error(`[ReportService] Error leyendo metadata.json para reporte ${report.id}:`, err.message);
+      }
+    }
+
+    // Fallback: descargar PDF original y parsear el número de páginas
+    try {
+      const pdfExists = await storageService.exists(report.storagePath);
+      if (!pdfExists) return 0;
+      const pdfBuffer = await storageService.download(report.storagePath);
+      const { numPages } = await pdfParser.parse(pdfBuffer);
+      
+      // Guardar metadata.json para futuras peticiones
+      try {
+        await storageService.save(Buffer.from(JSON.stringify({ numPages })), metadataPath);
+      } catch (saveErr) {
+        console.error(`[ReportService] Error guardando metadata.json de respaldo para reporte ${report.id}:`, saveErr.message);
+      }
+      return numPages;
+    } catch (err) {
+      console.error(`[ReportService] Fallback de conteo de páginas falló para reporte ${report.id}:`, err.message);
+      return 0;
+    }
+  }
+
+  /**
+   * Obtiene o genera la imagen original de una página específica.
+   */
+  async getOrCreatePageImage(reportId, pageNum) {
+    const imgRelPath = `processed/${reportId}/original-pages/page-${pageNum}.jpg`;
+    const exists = await storageService.exists(imgRelPath);
+    if (exists) {
+      return imgRelPath;
+    }
+
+    // Si no existe, renderizar al vuelo
+    const report = await this.getReportById(reportId);
+    const pdfExists = await storageService.exists(report.storagePath);
+    if (!pdfExists) {
+      throw new Error('No se encontró el archivo PDF original en el almacenamiento.');
+    }
+    const pdfBuffer = await storageService.download(report.storagePath);
+
+    console.log(`[ReportService] Renderizando al vuelo página ${pageNum} para reporte ${reportId}`);
+    const rendered = await pageRender.renderPages(pdfBuffer, [pageNum]);
+    if (!rendered || rendered.length === 0) {
+      throw new Error(`No se pudo renderizar la página ${pageNum}`);
+    }
+
+    const { buffer } = rendered[0];
+    await storageService.save(buffer, imgRelPath);
+    return imgRelPath;
+  }
 }
 
 module.exports = new ReportService();

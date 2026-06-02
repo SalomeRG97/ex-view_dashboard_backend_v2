@@ -20,6 +20,9 @@ router.delete('/admin/reports/:id', requireAdminAuth, reportController.delete);
 // Obtener info del reporte (para mostrar anomalías disponibles)
 router.get('/reports/:id', reportController.getById);
 
+// Obtener página específica del PDF como imagen
+router.get('/reports/:id/pages/:pageNum', reportController.getPageImage);
+
 // Descargar informe original (sin auth)
 router.get('/reports/:id/original', reportController.downloadOriginal);
 

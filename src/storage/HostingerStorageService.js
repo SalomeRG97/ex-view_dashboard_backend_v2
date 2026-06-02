@@ -82,6 +82,18 @@ class HostingerStorageService extends StorageService {
 
       } catch (err) {
         lastError = err;
+
+        // No reintentar si el error es permanente (ej: 550 File/Directory not found)
+        const isPermanent = err.code === 550 ||
+                            err.code === '550' ||
+                            err.message?.includes('550') ||
+                            err.message?.toLowerCase().includes('no such file') ||
+                            err.message?.toLowerCase().includes('permission denied');
+
+        if (isPermanent) {
+          throw err;
+        }
+
         const isFatal = err.message?.toLowerCase().includes('timeout') ||
                         err.message?.toLowerCase().includes('econnreset') ||
                         err.message?.toLowerCase().includes('econnrefused') ||

@@ -77,6 +77,24 @@ class ReportProcessingService {
       // 6. Guardar secciones en DB y marcar como READY
       await reportRepository.updateWithSections(reportId, processedSections);
 
+      // 7. Pre-renderizar portada del PDF original (página 1) y guardar metadatos
+      try {
+        console.log(`[ReportProcessingService] Pre-renderizando portada (página 1) para reporte ${reportId}`);
+        const renderedCover = await pageRender.renderPages(pdfBuffer, [1]);
+        if (renderedCover.length > 0) {
+          await storageService.save(renderedCover[0].buffer, `processed/${reportId}/original-pages/page-1.jpg`);
+        }
+      } catch (coverErr) {
+        console.error(`[ReportProcessingService] ⚠️ Error pre-renderizando portada:`, coverErr.message);
+      }
+
+      try {
+        const metadata = { numPages };
+        await storageService.save(Buffer.from(JSON.stringify(metadata)), `processed/${reportId}/metadata.json`);
+      } catch (metaErr) {
+        console.error(`[ReportProcessingService] ⚠️ Error guardando metadata:`, metaErr.message);
+      }
+
       const totalDuration = Date.now() - startTime;
       console.log(`[ReportProcessingService] ✅ Reporte ${reportId} procesado en ${totalDuration}ms`);
 
