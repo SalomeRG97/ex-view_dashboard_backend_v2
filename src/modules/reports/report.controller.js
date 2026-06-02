@@ -67,14 +67,23 @@ class ReportController {
         return res.status(404).json({ error: 'No se encontró el archivo PDF original en el almacenamiento.' });
       }
 
-      const buffer = await storageService.download(report.storagePath);
+      const publicUrlOrPath = storageService.getPublicUrl(report.storagePath);
+      
+      // Si la URL es remota (producción en Hostinger), redirigir directamente para que el cliente lo descargue
+      // o visualice usando byte-ranges directamente desde el CDN/servidor web de Hostinger.
+      if (publicUrlOrPath.startsWith('http://') || publicUrlOrPath.startsWith('https://')) {
+        return res.redirect(publicUrlOrPath);
+      }
+
+      // Si es almacenamiento local (desarrollo), enviamos el archivo directamente con res.sendFile
+      // lo cual soporta byte-ranges nativos de forma automática y óptima en Express.
       res.setHeader('Content-Type', 'application/pdf');
       if (req.query.inline === 'true') {
         res.setHeader('Content-Disposition', `inline; filename="${report.originalName}"`);
       } else {
         res.setHeader('Content-Disposition', `attachment; filename="${report.originalName}"`);
       }
-      res.send(buffer);
+      return res.sendFile(publicUrlOrPath);
     } catch (err) { next(err); }
   }
 
