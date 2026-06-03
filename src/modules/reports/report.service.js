@@ -318,7 +318,7 @@ class ReportService {
         logoUrl = url.pathToFileURL(logoPath).href;
       }
 
-      // 10. Construir HTML y generar PDF
+      // 10. Construir HTML y generar PDF con metadatos de diagnóstico
       const html = htmlBuilderService.build({
         dashboardName,
         clientName,
@@ -330,7 +330,29 @@ class ReportService {
         logoUrl,
       });
 
-      const tempPdfPath = await pdfGeneratorService.generate(html);
+      // ── Calcular metadatos de imágenes para diagnóstico ───────────────────
+      // Recopilar todas las rutas de imágenes en disco (solo file:// locales, no URLs remotas)
+      let totalImageSizeBytes = 0;
+      let localImageCount = 0;
+      for (const [, srcUrl] of pageImageSources) {
+        if (srcUrl && srcUrl.startsWith('file://')) {
+          try {
+            const localPath = require('url').fileURLToPath(srcUrl);
+            if (fs.existsSync(localPath)) {
+              totalImageSizeBytes += fs.statSync(localPath).size;
+              localImageCount++;
+            }
+          } catch (_) {}
+        }
+      }
+
+      const pdfMeta = {
+        imageCount:          pageImageSources.size, // Total de páginas-imagen, incluye pre-renderizadas
+        totalImageSizeBytes: localImageCount > 0 ? totalImageSizeBytes : undefined,
+        pageCount:           totalPages,
+      };
+
+      const tempPdfPath = await pdfGeneratorService.generate(html, pdfMeta);
       return tempPdfPath;
 
     } finally {
