@@ -29,11 +29,11 @@ class PDFJSRenderer {
       const { createCanvas } = require('@napi-rs/canvas');
 
       // 3. Configurar urls de fuentes y mapas de caracteres
-      const standardFontsPath = path.resolve(__dirname, '../../../../../node_modules/pdfjs-dist/standard_fonts/');
-      const standardFontDataUrl = url.pathToFileURL(standardFontsPath).href + '/';
+      const standardFontsPath = path.resolve(__dirname, '../../../../../node_modules/pdfjs-dist/standard_fonts');
+      const standardFontDataUrl = standardFontsPath + (standardFontsPath.endsWith(path.sep) ? '' : path.sep);
 
-      const cmapsPath = path.resolve(__dirname, '../../../../../node_modules/pdfjs-dist/cmaps/');
-      const cMapUrl = url.pathToFileURL(cmapsPath).href + '/';
+      const cmapsPath = path.resolve(__dirname, '../../../../../node_modules/pdfjs-dist/cmaps');
+      const cMapUrl = cmapsPath + (cmapsPath.endsWith(path.sep) ? '' : path.sep);
 
       // 4. Cargar el PDF desde el buffer
       const uint8Array = new Uint8Array(pdfBuffer);
