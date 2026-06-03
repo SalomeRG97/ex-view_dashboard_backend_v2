@@ -330,8 +330,8 @@ class ReportService {
         logoUrl,
       });
 
-      const generatedPdfBuffer = await pdfGeneratorService.generate(html);
-      return generatedPdfBuffer;
+      const tempPdfPath = await pdfGeneratorService.generate(html);
+      return tempPdfPath;
 
     } finally {
       // 11. Eliminar archivos temporales de forma segura

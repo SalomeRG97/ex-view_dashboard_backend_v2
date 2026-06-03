@@ -6,19 +6,27 @@ const url = require('url');
 
 class PDFGeneratorService {
   /**
-   * Genera un PDF a partir de un HTML string usando Puppeteer.
+   * Genera un PDF a partir de un HTML string usando Puppeteer directamente en disco.
    * @param {string} html - HTML completo del informe
-   * @returns {Promise<Buffer>} Buffer del PDF generado
+   * @returns {Promise<string>} Ruta absoluta al PDF generado
    */
   async generate(html) {
     let browser;
-    let tempFilePath;
+    let tempHtmlPath;
+    let tempPdfPath;
+
+    const formatMemory = (bytes) => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    const logMemory = (stage) => {
+      const mem = process.memoryUsage();
+      console.log(`[Memory Diagnostics] [${stage}] RSS: ${formatMemory(mem.rss)} | Heap: ${formatMemory(mem.heapUsed)}/${formatMemory(mem.heapTotal)} | External: ${formatMemory(mem.external)}`);
+    };
+
     try {
       const tempDir = os.tmpdir();
-      const tempFileName = `temp-report-${Date.now()}-${Math.random().toString(36).substring(7)}.html`;
-      tempFilePath = path.join(tempDir, tempFileName);
+      tempHtmlPath = path.join(tempDir, `temp-report-${Date.now()}-${Math.random().toString(36).substring(7)}.html`);
+      tempPdfPath = path.join(tempDir, `temp-report-${Date.now()}-${Math.random().toString(36).substring(7)}.pdf`);
 
-      fs.writeFileSync(tempFilePath, html, 'utf8');
+      fs.writeFileSync(tempHtmlPath, html, 'utf8');
 
       const launchOptions = {
         headless: 'new',
@@ -38,6 +46,7 @@ class PDFGeneratorService {
         launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
       }
 
+      logMemory('Before Chromium Launch');
       browser = await puppeteer.launch(launchOptions);
 
       const page = await browser.newPage();
@@ -47,7 +56,7 @@ class PDFGeneratorService {
       page.setDefaultNavigationTimeout(180000);
 
       // Cargar el HTML usando file:/// URL para evitar sobrepasar límites de memoria con imágenes en base64
-      await page.goto(url.pathToFileURL(tempFilePath).href, {
+      await page.goto(url.pathToFileURL(tempHtmlPath).href, {
         waitUntil: 'load',
         timeout: 90000, // 90 segundos para PDFs grandes
       });
@@ -69,18 +78,28 @@ class PDFGeneratorService {
         await new Promise(resolve => setTimeout(resolve, 100));
       });
 
-      const pdfBuffer = await page.pdf({
+      logMemory('Before PDF Generation');
+      await page.pdf({
+        path: tempPdfPath,
         format: 'A4',
         printBackground: true,
         margin: { top: 0, right: 0, bottom: 0, left: 0 },
         preferCSSPageSize: true,
       });
+      logMemory('After PDF Generation');
 
-      return Buffer.from(pdfBuffer);
-    } finally {
-      if (tempFilePath && fs.existsSync(tempFilePath)) {
+      return tempPdfPath;
+    } catch (err) {
+      if (tempPdfPath && fs.existsSync(tempPdfPath)) {
         try {
-          fs.unlinkSync(tempFilePath);
+          fs.unlinkSync(tempPdfPath);
+        } catch (_) {}
+      }
+      throw err;
+    } finally {
+      if (tempHtmlPath && fs.existsSync(tempHtmlPath)) {
+        try {
+          fs.unlinkSync(tempHtmlPath);
         } catch (err) {
           console.warn('Warning: Error deleting temporary HTML file:', err.message);
         }

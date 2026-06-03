@@ -144,6 +144,17 @@ class ReportController {
 
   // POST /api/reports/:id/generate  (cliente puede generar)
   async generate(req, res, next) {
+    const fs = require('fs');
+    const { pipeline } = require('stream');
+
+    const formatMemory = (bytes) => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    const logMemory = (stage) => {
+      const mem = process.memoryUsage();
+      console.log(`[Memory Diagnostics] [${stage}] RSS: ${formatMemory(mem.rss)} | Heap: ${formatMemory(mem.heapUsed)}/${formatMemory(mem.heapTotal)} | External: ${formatMemory(mem.external)}`);
+    };
+
+    let tempPdfPath = null;
+
     try {
       const { selectedTypes = [], selectedSectionIds = [], dashboardName, clientName } = req.body;
 
@@ -154,21 +165,72 @@ class ReportController {
         return res.status(400).json({ error: 'Debes seleccionar al menos una sección o tipo de anomalía.' });
       }
 
-      const pdfBuffer = await reportService.generateFilteredReport(req.params.id, {
+      // Generar el PDF directamente en disco temporal
+      tempPdfPath = await reportService.generateFilteredReport(req.params.id, {
         selectedSectionIds,
         selectedTypes,
         dashboardName: dashboardName || 'Informe Solar',
         clientName:    clientName    || 'Cliente'
       });
 
-      // Usar el nombre original del informe como nombre del archivo descargado
+      // Obtener información del reporte para el nombre del archivo
       const report = await reportService.getReportById(req.params.id);
       const originalName = report.originalName || `informe-filtrado-${req.params.id}.pdf`;
 
+      logMemory('Before Streaming');
+      console.log(`[Download Filtered] Iniciando transmisión del PDF filtrado: ${originalName}`);
+
+      // Configurar cabeceras de respuesta
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${originalName}"`);
-      res.send(pdfBuffer);
-    } catch (err) { next(err); }
+      
+      if (fs.existsSync(tempPdfPath)) {
+        const stats = fs.statSync(tempPdfPath);
+        res.setHeader('Content-Length', stats.size);
+      }
+
+      const stream = fs.createReadStream(tempPdfPath);
+
+      // Manejar cierre abrupto de la conexión del cliente
+      req.on('close', () => {
+        if (!stream.destroyed) {
+          console.log('[Download Filtered] Conexión cerrada prematuramente por el cliente. Destruyendo stream.');
+          stream.destroy();
+        }
+      });
+
+      // Canalizar y limpiar el archivo al finalizar
+      pipeline(stream, res, (err) => {
+        logMemory('After Stream Finished');
+
+        // Eliminar el PDF temporal de inmediato
+        if (tempPdfPath && fs.existsSync(tempPdfPath)) {
+          fs.unlink(tempPdfPath, (unlinkErr) => {
+            if (unlinkErr) {
+              console.error(`[Download Filtered] Error al eliminar archivo temporal: ${tempPdfPath}`, unlinkErr.message);
+            } else {
+              console.log(`[Download Filtered] Archivo temporal eliminado con éxito: ${tempPdfPath}`);
+            }
+          });
+        }
+
+        if (err) {
+          console.error('[Download Filtered] Error en el pipeline de descarga:', err.message);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Error al transmitir el archivo PDF filtrado.' });
+          }
+        } else {
+          console.log('[Download Filtered] Transmisión del PDF filtrado completada exitosamente.');
+        }
+      });
+
+    } catch (err) {
+      // En caso de error antes de iniciar el stream, asegurar la limpieza del archivo temporal si existe
+      if (tempPdfPath && fs.existsSync(tempPdfPath)) {
+        try { fs.unlinkSync(tempPdfPath); } catch (_) {}
+      }
+      next(err);
+    }
   }
 
   // DELETE /api/admin/reports/:id
