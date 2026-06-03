@@ -69,10 +69,17 @@ class ReportController {
 
       const publicUrlOrPath = storageService.getPublicUrl(report.storagePath);
       
-      // Si la URL es remota (producción en Hostinger), redirigir directamente para que el cliente lo descargue
-      // o visualice usando byte-ranges directamente desde el CDN/servidor web de Hostinger.
+      // Si la URL es remota (producción en Hostinger)
       if (publicUrlOrPath.startsWith('http://') || publicUrlOrPath.startsWith('https://')) {
-        return res.redirect(publicUrlOrPath);
+        if (req.query.inline === 'true') {
+          // Si es visualización inline (ej: iframe), redirigir para usar el CDN directamente.
+          return res.redirect(publicUrlOrPath);
+        }
+        // Si es para descarga directa, bajamos el archivo del storage y lo enviamos como attachment.
+        const fileBuffer = await storageService.download(report.storagePath);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${report.originalName}"`);
+        return res.send(fileBuffer);
       }
 
       // Si es almacenamiento local (desarrollo), enviamos el archivo directamente con res.sendFile
