@@ -58,6 +58,14 @@ class ReportController {
 
   // GET /api/reports/:id/original (descargar PDF original sin auth)
   async downloadOriginal(req, res, next) {
+    const { pipeline } = require('stream');
+    
+    const formatMemory = (bytes) => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    const logMemory = (stage) => {
+      const mem = process.memoryUsage();
+      console.log(`[Memory Diagnostics] [${stage}] RSS: ${formatMemory(mem.rss)} | Heap: ${formatMemory(mem.heapUsed)}/${formatMemory(mem.heapTotal)} | External: ${formatMemory(mem.external)}`);
+    };
+
     try {
       const report = await reportService.getReportById(req.params.id);
       const storageService = require('../../storage/storageFactory');
@@ -68,29 +76,69 @@ class ReportController {
       }
 
       const publicUrlOrPath = storageService.getPublicUrl(report.storagePath);
-      
-      // Si la URL es remota (producción en Hostinger)
-      if (publicUrlOrPath.startsWith('http://') || publicUrlOrPath.startsWith('https://')) {
-        if (req.query.inline === 'true') {
-          // Si es visualización inline (ej: iframe), redirigir para usar el CDN directamente.
-          return res.redirect(publicUrlOrPath);
-        }
-        // Si es para descarga directa, bajamos el archivo del storage y lo enviamos como attachment.
-        const fileBuffer = await storageService.download(report.storagePath);
+      const isRemote = publicUrlOrPath.startsWith('http://') || publicUrlOrPath.startsWith('https://');
+
+      // Si es visualización inline (ej: para el iframe de visualización)
+      if (req.query.inline === 'true') {
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${report.originalName}"`);
-        return res.send(fileBuffer);
+        res.setHeader('Content-Disposition', `inline; filename="${report.originalName}"`);
+        if (isRemote) {
+          // Redirigir directamente al CDN/servidor de Hostinger para visualización rápida y soporte nativo de rangos
+          return res.redirect(publicUrlOrPath);
+        } else {
+          // Local: usar res.sendFile para soporte de rangos nativo en desarrollo
+          return res.sendFile(publicUrlOrPath);
+        }
       }
 
-      // Si es almacenamiento local (desarrollo), enviamos el archivo directamente con res.sendFile
-      // lo cual soporta byte-ranges nativos de forma automática y óptima en Express.
+      // --- CONFIGURACIÓN DE DESCARGA DIRECTA POR STREAMS ---
+      logMemory('Before Download');
+      console.log(`[Download] Iniciando descarga en streaming para el reporte: ${report.originalName} (${report.id})`);
+
+      // Configurar cabeceras de descarga
       res.setHeader('Content-Type', 'application/pdf');
-      if (req.query.inline === 'true') {
-        res.setHeader('Content-Disposition', `inline; filename="${report.originalName}"`);
-      } else {
-        res.setHeader('Content-Disposition', `attachment; filename="${report.originalName}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${report.originalName}"`);
+      if (report.fileSize) {
+        res.setHeader('Content-Length', report.fileSize);
       }
-      return res.sendFile(publicUrlOrPath);
+
+      // Obtener el Readable Stream desde el storage (local o FTP)
+      const stream = await storageService.getReadableStream(report.storagePath);
+
+      // Manejar abortos del cliente (ej: si el usuario cancela la descarga o cierra la pestaña)
+      req.on('close', () => {
+        if (!stream.destroyed) {
+          console.log('[Download] La conexión HTTP se cerró prematuramente. Destruyendo el stream de lectura.');
+          stream.destroy();
+        }
+      });
+
+      // Medir transmisión
+      let totalBytesSent = 0;
+      let lastLogTime = Date.now();
+      
+      stream.on('data', (chunk) => {
+        totalBytesSent += chunk.length;
+        const now = Date.now();
+        if (now - lastLogTime > 3000) { // Loggear cada 3 segundos durante la descarga
+          logMemory(`Transmitted ${formatMemory(totalBytesSent)}`);
+          lastLogTime = now;
+        }
+      });
+
+      // Enlazar los streams y manejar finalización/errores de forma segura
+      pipeline(stream, res, (err) => {
+        logMemory('Finished');
+        if (err) {
+          console.error('[Download] Error en el pipeline de descarga:', err.message);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Error al transmitir el archivo PDF.' });
+          }
+        } else {
+          console.log(`[Download] Descarga completada exitosamente. Total enviado: ${formatMemory(totalBytesSent)}`);
+        }
+      });
+
     } catch (err) { next(err); }
   }
 

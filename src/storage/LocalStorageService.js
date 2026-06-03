@@ -56,6 +56,19 @@ class LocalStorageService extends StorageService {
   }
 
   /**
+   * Obtiene un stream de lectura para el archivo local.
+   * @param {string} filePath - ruta relativa
+   * @returns {Promise<import('fs').ReadStream>}
+   */
+  async getReadableStream(filePath) {
+    const fullPath = path.join(STORAGE_ROOT, filePath);
+    if (!fs.existsSync(fullPath)) {
+      throw new Error(`Archivo no encontrado: ${filePath}`);
+    }
+    return fs.createReadStream(fullPath);
+  }
+
+  /**
    * Verifica si el archivo existe en disco.
    * @param {string} filePath - ruta relativa
    * @returns {Promise<boolean>}

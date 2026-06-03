@@ -177,6 +177,34 @@ class HostingerStorageService extends StorageService {
   }
 
   /**
+   * Obtiene un stream de lectura para el archivo remoto en Hostinger (FTP).
+   * @param {string} filePath - ruta relativa
+   * @returns {Promise<import('stream').Readable>}
+   */
+  async getReadableStream(filePath) {
+    const remoteFilePath = this._remotePath(filePath);
+    const { PassThrough } = require('stream');
+    const passThrough = new PassThrough();
+
+    // Conectar e iniciar la descarga en background hacia el PassThrough stream
+    this._connect()
+      .then(async (client) => {
+        try {
+          await client.downloadTo(passThrough, remoteFilePath);
+        } catch (err) {
+          passThrough.destroy(err);
+        } finally {
+          try { client.close(); } catch (_) {}
+        }
+      })
+      .catch((err) => {
+        passThrough.destroy(err);
+      });
+
+    return passThrough;
+  }
+
+  /**
    * Verifica si un archivo existe en Hostinger.
    * @param {string} filePath - ruta relativa
    * @returns {Promise<boolean>}

@@ -41,6 +41,15 @@ class StorageService {
   }
 
   /**
+   * Obtener un stream de lectura para el archivo.
+   * @param {string} filePath
+   * @returns {Promise<import('stream').Readable>}
+   */
+  async getReadableStream(filePath) {
+    throw new Error('StorageService.getReadableStream() debe ser implementado');
+  }
+
+  /**
    * Verificar existencia de archivo.
    * @param {string} filePath
    * @returns {Promise<boolean>}
