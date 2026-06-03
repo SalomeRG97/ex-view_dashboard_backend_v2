@@ -180,6 +180,142 @@ class PDFGeneratorService {
       logPoint('6/6 - After Chromium Closed');
     }
   }
+
+  /**
+   * Genera múltiples archivos PDF a partir de una lista de HTML strings, reutilizando el navegador.
+   * @param {string[]} htmlChunks - Lista de HTML de cada bloque
+   * @returns {Promise<string[]>} Lista de rutas absolutas de los PDFs chunks
+   */
+  async generateChunked(htmlChunks) {
+    let browser;
+    const chunkPdfPaths = [];
+    const tempHtmlPaths = [];
+
+    const fmt  = (bytes) => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    const logMemory = (label) => {
+      const m = process.memoryUsage();
+      console.log(
+        `[PDF Diagnostics] [${label}] ` +
+        `RSS: ${fmt(m.rss)} | ` +
+        `Heap: ${fmt(m.heapUsed)}/${fmt(m.heapTotal)} | ` +
+        `External: ${fmt(m.external)}`
+      );
+    };
+
+    try {
+      const launchOptions = {
+        headless: 'new',
+        protocolTimeout: 300000,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-features=FirstPartySets',
+          '--disable-gpu',
+          '--allow-file-access-from-files',
+          '--disable-web-security',
+        ],
+      };
+
+      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      }
+
+      console.log(`[PDFGeneratorService] Lanzando Chromium para generación por chunks...`);
+      logMemory('Launch Start');
+      browser = await puppeteer.launch(launchOptions);
+
+      for (let i = 0; i < htmlChunks.length; i++) {
+        const html = htmlChunks[i];
+        const tempDir = os.tmpdir();
+        const tempHtmlPath = path.join(tempDir, `temp-chunk-${i}-${Date.now()}-${Math.random().toString(36).substring(7)}.html`);
+        const tempPdfPath  = path.join(tempDir, `temp-chunk-${i}-${Date.now()}-${Math.random().toString(36).substring(7)}.pdf`);
+
+        fs.writeFileSync(tempHtmlPath, html, 'utf8');
+        tempHtmlPaths.push(tempHtmlPath);
+        chunkPdfPaths.push(tempPdfPath);
+
+        console.log(`[PDFGeneratorService] Procesando chunk ${i + 1}/${htmlChunks.length}...`);
+
+        let page = await browser.newPage();
+        page.setDefaultTimeout(180000);
+        page.setDefaultNavigationTimeout(180000);
+
+        await page.goto(url.pathToFileURL(tempHtmlPath).href, {
+          waitUntil: 'load',
+          timeout: 90000,
+        });
+
+        // Esperar a que se carguen las imágenes y fuentes
+        await page.evaluate(async () => {
+          await Promise.all(
+            Array.from(document.images)
+              .filter(img => !img.complete)
+              .map(img => new Promise(resolve => {
+                img.onload = resolve;
+                img.onerror = resolve;
+              }))
+          );
+          await document.fonts.ready;
+          await new Promise(resolve => setTimeout(resolve, 100));
+        });
+
+        await page.pdf({
+          path: tempPdfPath,
+          format: 'A4',
+          printBackground: true,
+          margin: { top: 0, right: 0, bottom: 0, left: 0 },
+          preferCSSPageSize: true,
+        });
+
+        await page.close();
+        page = null;
+
+        if (global.gc) {
+          global.gc();
+        }
+
+        logMemory(`Chunk ${i + 1}/${htmlChunks.length} Finished`);
+
+        // Eliminar HTML temporal del chunk de inmediato
+        try {
+          fs.unlinkSync(tempHtmlPath);
+          // Quitar de la lista de pendientes para que no se intente borrar en finally
+          const idx = tempHtmlPaths.indexOf(tempHtmlPath);
+          if (idx !== -1) tempHtmlPaths.splice(idx, 1);
+        } catch (unlinkErr) {
+          console.warn(`Warning: No se pudo eliminar HTML temporal de chunk ${i + 1}:`, unlinkErr.message);
+        }
+      }
+
+      return chunkPdfPaths;
+
+    } catch (err) {
+      console.error('[PDFGeneratorService] Error durante la generación chunked:', err.message);
+      // Limpiar PDFs generados en caso de fallo
+      for (const pdfPath of chunkPdfPaths) {
+        if (fs.existsSync(pdfPath)) {
+          try { fs.unlinkSync(pdfPath); } catch (_) {}
+        }
+      }
+      throw err;
+    } finally {
+      // Limpiar cualquier HTML temporal restante
+      for (const htmlPath of tempHtmlPaths) {
+        if (fs.existsSync(htmlPath)) {
+          try { fs.unlinkSync(htmlPath); } catch (_) {}
+        }
+      }
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (closeError) {
+          console.warn('Warning: Error closing puppeteer browser:', closeError.message);
+        }
+      }
+      logMemory('After Browser Closed');
+    }
+  }
 }
 
 module.exports = new PDFGeneratorService();

@@ -3,6 +3,7 @@ const reportRepository     = require('./report.repository');
 const processingService    = require('./services/ReportProcessingService');
 const htmlBuilderService   = require('./services/HTMLBuilderService');
 const pdfGeneratorService  = require('./services/PDFGeneratorService');
+const pdfMergerService     = require('./services/PDFMergerService');
 
 const fs                   = require('fs');
 const path                 = require('path');
@@ -299,6 +300,7 @@ class ReportService {
           src,
           pageNum: newPageNum,
           label,
+          originalPage: p,
         });
       }
 
@@ -318,41 +320,82 @@ class ReportService {
         logoUrl = url.pathToFileURL(logoPath).href;
       }
 
-      // 10. Construir HTML y generar PDF con metadatos de diagnóstico
-      const html = htmlBuilderService.build({
-        dashboardName,
-        clientName,
-        coverPageSrc,
-        tocHtml,
-        pages: pagesForBuilder,
-        totalPages,
-        generatedAt,
-        logoUrl,
-      });
+      // 10. Construcción Inteligente por Chunks y Unión (Merging)
+      const anomalySections = [...(report.sections || [])];
+      anomalySections.sort((a, b) => a.pageStart - b.pageStart);
 
-      // ── Calcular metadatos de imágenes para diagnóstico ───────────────────
-      // Recopilar todas las rutas de imágenes en disco (solo file:// locales, no URLs remotas)
-      let totalImageSizeBytes = 0;
-      let localImageCount = 0;
-      for (const [, srcUrl] of pageImageSources) {
-        if (srcUrl && srcUrl.startsWith('file://')) {
-          try {
-            const localPath = require('url').fileURLToPath(srcUrl);
-            if (fs.existsSync(localPath)) {
-              totalImageSizeBytes += fs.statSync(localPath).size;
-              localImageCount++;
-            }
-          } catch (_) {}
+      const firstSectionStart = anomalySections.length > 0 ? Math.min(...anomalySections.map(s => s.pageStart)) : 999999;
+      const lastSectionEnd = anomalySections.length > 0 ? Math.max(...anomalySections.map(s => s.pageEnd)) : -1;
+
+      const preResultPages = pagesForBuilder.filter(pg => pg.originalPage < firstSectionStart);
+      const postResultPages = pagesForBuilder.filter(pg => pg.originalPage > lastSectionEnd);
+
+      const PDF_CHUNK_SIZE = parseInt(process.env.PDF_CHUNK_SIZE || '25', 10);
+      const htmlChunks = [];
+
+      // A. Bloque Intro (Portada + TOC)
+      htmlChunks.push(
+        htmlBuilderService.buildIntroChunk({
+          coverPageSrc,
+          tocHtml,
+          dashboardName,
+          logoUrl,
+        })
+      );
+
+      // B. Bloques de Contenido Previos a Resultados (Pre-Resultados)
+      if (preResultPages.length > 0) {
+        for (let j = 0; j < preResultPages.length; j += PDF_CHUNK_SIZE) {
+          const chunkPages = preResultPages.slice(j, j + PDF_CHUNK_SIZE);
+          htmlChunks.push(htmlBuilderService.buildContentChunk({ pages: chunkPages }));
         }
       }
 
-      const pdfMeta = {
-        imageCount:          pageImageSources.size, // Total de páginas-imagen, incluye pre-renderizadas
-        totalImageSizeBytes: localImageCount > 0 ? totalImageSizeBytes : undefined,
-        pageCount:           totalPages,
-      };
+      // C. Bloques de Resultados (Anomalías)
+      for (const section of anomalySections) {
+        const sectionPages = pagesForBuilder.filter(pg => pg.originalPage >= section.pageStart && pg.originalPage <= section.pageEnd);
+        if (sectionPages.length === 0) continue;
 
-      const tempPdfPath = await pdfGeneratorService.generate(html, pdfMeta);
+        // Dividir si supera PDF_CHUNK_SIZE páginas
+        for (let j = 0; j < sectionPages.length; j += PDF_CHUNK_SIZE) {
+          const chunkPages = sectionPages.slice(j, j + PDF_CHUNK_SIZE);
+          htmlChunks.push(htmlBuilderService.buildContentChunk({ pages: chunkPages }));
+        }
+      }
+
+      // D. Bloques Huérfanos (por seguridad si hay páginas en rango de resultados no asignadas a secciones)
+      const orphanPages = [];
+      for (const pg of pagesForBuilder) {
+        if (pg.originalPage >= firstSectionStart && pg.originalPage <= lastSectionEnd) {
+          const inSection = anomalySections.some(s => pg.originalPage >= s.pageStart && pg.originalPage <= s.pageEnd);
+          if (!inSection) {
+            orphanPages.push(pg);
+          }
+        }
+      }
+      if (orphanPages.length > 0) {
+        for (let j = 0; j < orphanPages.length; j += PDF_CHUNK_SIZE) {
+          const chunkPages = orphanPages.slice(j, j + PDF_CHUNK_SIZE);
+          htmlChunks.push(htmlBuilderService.buildContentChunk({ pages: chunkPages }));
+        }
+      }
+
+      // E. Bloque Final (Post-Resultados: Conclusiones, Certificados, Anexos)
+      if (postResultPages.length > 0) {
+        for (let j = 0; j < postResultPages.length; j += PDF_CHUNK_SIZE) {
+          const chunkPages = postResultPages.slice(j, j + PDF_CHUNK_SIZE);
+          htmlChunks.push(htmlBuilderService.buildContentChunk({ pages: chunkPages }));
+        }
+      }
+
+      // ── Generar PDFs parciales secuencialmente ───────────────────────────
+      console.log(`[ReportService] Generando informe en ${htmlChunks.length} chunks con tamaño máximo de ${PDF_CHUNK_SIZE} páginas por chunk.`);
+      const chunkPaths = await pdfGeneratorService.generateChunked(htmlChunks);
+
+      // ── Unir los PDFs ────────────────────────────────────────────────────
+      console.log(`[ReportService] Uniendo chunks con pdf-lib...`);
+      const tempPdfPath = await pdfMergerService.merge(chunkPaths);
+
       return tempPdfPath;
 
     } finally {

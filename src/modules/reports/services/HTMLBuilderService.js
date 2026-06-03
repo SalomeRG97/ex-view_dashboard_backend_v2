@@ -48,7 +48,121 @@ class HTMLBuilderService {
 <head>
   <meta charset="UTF-8"/>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    ${this._getStyles()}
+  </style>
+</head>
+<body>
+
+  <!-- PORTADA ORIGINAL -->
+  <div class="cover-page-original">
+    <img src="{{coverPageSrc}}" alt="Portada Original" />
+  </div>
+
+  <!-- TABLA DE CONTENIDOS -->
+  <div class="toc-page">
+    <div class="page-header-box">
+      <div class="header-logo-container">
+        <img src="{{logoUrl}}" alt="EX-VIEW SOLAR" />
+      </div>
+      <div class="header-text-container">
+        INFORME DE INSPECCIÓN RGB/IR - {{dashboardName}}
+      </div>
+    </div>
+
+    <div class="toc-title">TABLA DE CONTENIDO</div>
+
+    <div class="toc-content">
+      {{{tocHtml}}}
+    </div>
+
+    <div class="page-footer">
+      <span>2</span>
+    </div>
+  </div>
+
+  <!-- PÁGINAS DE CONTENIDO -->
+  {{#each pages}}
+  <div class="content-page">
+    <img src="{{this.src}}" alt="Página {{this.pageNum}}" />
+    <div class="page-footer">
+      <span>{{this.pageNum}}</span>
+    </div>
+  </div>
+  {{/each}}
+
+</body>
+</html>`;
+  }
+
+  buildIntroChunk({ coverPageSrc, tocHtml, dashboardName, logoUrl }) {
+    const templateStr = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <style>
+    ${this._getStyles()}
+  </style>
+</head>
+<body>
+  <!-- PORTADA ORIGINAL -->
+  <div class="cover-page-original">
+    <img src="{{coverPageSrc}}" alt="Portada Original" />
+  </div>
+
+  <!-- TABLA DE CONTENIDOS -->
+  <div class="toc-page">
+    <div class="page-header-box">
+      <div class="header-logo-container">
+        <img src="{{logoUrl}}" alt="EX-VIEW SOLAR" />
+      </div>
+      <div class="header-text-container">
+        INFORME DE INSPECCIÓN RGB/IR - {{dashboardName}}
+      </div>
+    </div>
+
+    <div class="toc-title">TABLA DE CONTENIDO</div>
+
+    <div class="toc-content">
+      {{{tocHtml}}}
+    </div>
+
+    <div class="page-footer">
+      <span>2</span>
+    </div>
+  </div>
+</body>
+</html>`;
+    const template = Handlebars.compile(templateStr);
+    return template({ coverPageSrc, tocHtml, dashboardName, logoUrl });
+  }
+
+  buildContentChunk({ pages }) {
+    const templateStr = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <style>
+    ${this._getStyles()}
+  </style>
+</head>
+<body>
+  <!-- PÁGINAS DE CONTENIDO -->
+  {{#each pages}}
+  <div class="content-page">
+    <img src="{{this.src}}" alt="Página {{this.pageNum}}" />
+    <div class="page-footer">
+      <span>{{this.pageNum}}</span>
+    </div>
+  </div>
+  {{/each}}
+</body>
+</html>`;
+    const template = Handlebars.compile(templateStr);
+    return template({ pages });
+  }
+
+  _getStyles() {
+    return `* { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Times New Roman', Times, serif; background: #fff; }
 
     /* ── Portada Original ── */
@@ -227,50 +341,7 @@ class HTMLBuilderService {
       .content-page { page-break-after: always; height: 297mm; }
       .cover-page-original { page-break-after: always; }
       .toc-page { page-break-after: always; }
-    }
-  </style>
-</head>
-<body>
-
-  <!-- PORTADA ORIGINAL -->
-  <div class="cover-page-original">
-    <img src="{{coverPageSrc}}" alt="Portada Original" />
-  </div>
-
-  <!-- TABLA DE CONTENIDOS -->
-  <div class="toc-page">
-    <div class="page-header-box">
-      <div class="header-logo-container">
-        <img src="{{logoUrl}}" alt="EX-VIEW SOLAR" />
-      </div>
-      <div class="header-text-container">
-        INFORME DE INSPECCIÓN RGB/IR - {{dashboardName}}
-      </div>
-    </div>
-
-    <div class="toc-title">TABLA DE CONTENIDO</div>
-
-    <div class="toc-content">
-      {{{tocHtml}}}
-    </div>
-
-    <div class="page-footer">
-      <span>2</span>
-    </div>
-  </div>
-
-  <!-- PÁGINAS DE CONTENIDO -->
-  {{#each pages}}
-  <div class="content-page">
-    <img src="{{this.src}}" alt="Página {{this.pageNum}}" />
-    <div class="page-footer">
-      <span>{{this.pageNum}}</span>
-    </div>
-  </div>
-  {{/each}}
-
-</body>
-</html>`;
+    }`;
   }
 }
 
