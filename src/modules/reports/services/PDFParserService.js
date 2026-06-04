@@ -32,7 +32,7 @@ class PDFParserService {
       const path = require('path');
       
       return new Promise((resolve, reject) => {
-        const scriptPath = path.join(__dirname, '../../../../../pdf_pipeline/extract_text.py');
+        const scriptPath = path.join(__dirname, '../../../../pdf_pipeline/extract_text.py');
         const python = spawn('python3', [scriptPath, input]);
         
         let outputData = '';
