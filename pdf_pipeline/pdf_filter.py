@@ -447,65 +447,61 @@ def generate_filtered_pdf(
         toc_text_bytes = build_new_toc_page_text_only(new_toc_entries)
         print(f'[pdf_filter] TOC texto nuevo: {len(toc_text_bytes) / 1024:.1f} KB', file=sys.stderr)
 
-        # ── 8. Ensamblar PDF final ────────────────────────────────────────────
-        final_pdf = pikepdf.Pdf.new()
+        # ── 8. Ensamblar PDF final (MODIFICACIÓN IN-PLACE PARA AHORRAR RAM) ───
         with pikepdf.open(io.BytesIO(toc_text_bytes)) as toc_text_pdf:
-            for orig_p in pages_to_include:
-                if orig_p < 1 or orig_p > total_pages:
-                    print(f'[pdf_filter] WARN: Página {orig_p} fuera de rango, omitida.', file=sys.stderr)
-                    continue
+            # Páginas a conservar: 1 (portada), 2 (TOC), y el resto del contenido
+            pages_to_keep = set([1, 2] + [p for p in pages_to_include if p > 1])
 
-                page = src_pdf.pages[orig_p - 1]
+            # Eliminar páginas excluidas EN ORDEN INVERSO
+            for p in range(total_pages, 0, -1):
+                if p not in pages_to_keep:
+                    del src_pdf.pages[p - 1]
 
-                if orig_p == 1:
-                    # 1. Portada
-                    final_pdf.pages.append(page)
+            # Reemplazar cuerpo de TOC (ahora es la página en índice 1)
+            if len(src_pdf.pages) > 1:
+                orig_toc_page = src_pdf.pages[1]
+                w = float(orig_toc_page.mediabox[2])
+                
+                rl_page = toc_text_pdf.pages[0]
+                rl_xobj = src_pdf.copy_foreign(rl_page.as_form_xobject())
+                
+                res = orig_toc_page.obj.get('/Resources')
+                if not res:
+                    res = pikepdf.Dictionary()
+                    orig_toc_page.obj['/Resources'] = res
+                xobjs = res.get('/XObject')
+                if not xobjs:
+                    xobjs = pikepdf.Dictionary()
+                    res['/XObject'] = xobjs
+                xobjs['/RLTOC'] = rl_xobj
 
-                    # 2. Insertar inmediatamente el TOC modificado
-                    if len(src_pdf.pages) > 1:
-                        orig_toc_page = src_pdf.pages[1]
-                        w = float(orig_toc_page.mediabox[2])
+                overlay = b'q 1 1 1 rg 1 1 1 RG 0 0 ' + f'{w:.2f} 745.00 re f '.encode() + b' 1 0 0 1 0 0 cm /RLTOC Do Q'
+                overlay_stream = pikepdf.Stream(src_pdf, overlay)
 
-                        rl_page = toc_text_pdf.pages[0]
-                        rl_xobj = src_pdf.copy_foreign(rl_page.as_form_xobject())
-
-                        res = orig_toc_page.obj.get('/Resources')
-                        if not res:
-                            res = pikepdf.Dictionary()
-                            orig_toc_page.obj['/Resources'] = res
-                        xobjs = res.get('/XObject')
-                        if not xobjs:
-                            xobjs = pikepdf.Dictionary()
-                            res['/XObject'] = xobjs
-                        xobjs['/RLTOC'] = rl_xobj
-
-                        overlay = b'q 1 1 1 rg 1 1 1 RG 0 0 ' + f'{w:.2f} 745.00 re f '.encode() + b' 1 0 0 1 0 0 cm /RLTOC Do Q'
-                        overlay_stream = pikepdf.Stream(src_pdf, overlay)
-
-                        if '/Contents' not in orig_toc_page.obj:
-                            orig_toc_page.obj['/Contents'] = pikepdf.Array([src_pdf.make_indirect(overlay_stream)])
-                        else:
-                            existing = orig_toc_page.obj['/Contents']
-                            if isinstance(existing, pikepdf.Array):
-                                existing.append(src_pdf.make_indirect(overlay_stream))
-                            else:
-                                orig_toc_page.obj['/Contents'] = pikepdf.Array([existing, src_pdf.make_indirect(overlay_stream)])
-
-                        final_pdf.pages.append(orig_toc_page)
+                if '/Contents' not in orig_toc_page.obj:
+                    orig_toc_page.obj['/Contents'] = pikepdf.Array([src_pdf.make_indirect(overlay_stream)])
                 else:
-                    # 3. Páginas de contenido con overlay
-                    new_page_num = original_to_new[orig_p]
-                    apply_page_number_overlay(page, src_pdf, new_page_num)
-                    final_pdf.pages.append(page)
+                    existing = orig_toc_page.obj['/Contents']
+                    if isinstance(existing, pikepdf.Array):
+                        existing.append(src_pdf.make_indirect(overlay_stream))
+                    else:
+                        orig_toc_page.obj['/Contents'] = pikepdf.Array([existing, src_pdf.make_indirect(overlay_stream)])
 
-        tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-        tmp_out.close()
-        final_pdf.save(tmp_out.name)
-        result_path = tmp_out.name
+            # Aplicar overlays al resto de las páginas (índice 2 en adelante)
+            remaining_content_pages = [p for p in pages_to_include if p > 1]
+            for idx, orig_p in enumerate(remaining_content_pages):
+                page = src_pdf.pages[idx + 2]
+                new_page_num = original_to_new[orig_p]
+                apply_page_number_overlay(page, src_pdf, new_page_num)
 
-    total_final = len(pages_to_include) + 1  # páginas originales (incluye portada) + TOC insertado
+            tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+            tmp_out.close()
+            src_pdf.save(tmp_out.name)
+            result_path = tmp_out.name
+
+    total_final = len(pages_to_include) + 1  # portada + TOC + ...
     print(
-        f'[pdf_filter] PDF final guardado en disco. '
+        f'[pdf_filter] PDF final guardado en disco (IN-PLACE). '
         f'{total_final} páginas',
         file=sys.stderr,
     )
