@@ -330,6 +330,8 @@ def generate_filtered_pdf(
 
     # ── 1. Parsear TOC original ───────────────────────────────────────────────
     toc_raw = parse_toc(pdf_path)
+    import gc
+    gc.collect()
     print(f'[pdf_filter] TOC parseado: {len(toc_raw)} entradas', file=sys.stderr)
 
     # ── 2. Conjuntos de páginas de anomalías ──────────────────────────────────
