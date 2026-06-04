@@ -1,11 +1,11 @@
 'use strict';
 
-const fs = require('fs');
+const fs   = require('fs');
 const path = require('path');
-const os = require('os');
+const os   = require('os');
 
-const popplerRenderer = require('./renderers/PopplerRenderer');
-const pdfjsRenderer = require('./renderers/PDFJSRenderer');
+const popplerRenderer   = require('./renderers/PopplerRenderer');
+const pdfjsRenderer     = require('./renderers/PDFJSRenderer');
 const puppeteerRenderer = require('./renderers/PuppeteerRenderer');
 
 class PageRenderService {
@@ -22,14 +22,11 @@ class PageRenderService {
    * Convierte páginas del PDF a imágenes JPEG optimizadas.
    * Selecciona el motor primario según la plataforma (OS) y aplica fallback si falla.
    *
-   * @param {Buffer}   pdfBuffer   - Buffer del PDF original
-   * @param {number[]} pageNumbers - Páginas a renderizar (1-indexed)
-   * @param {object}   options     - Opciones de renderizado
-   * @returns {Promise<Array<{page: number, buffer: Buffer}>>}
-   */
-  /**
-   * Convierte páginas del PDF a imágenes JPEG optimizadas.
-   * Selecciona el motor primario según la plataforma (OS) y aplica fallback si falla.
+   * NOTA: Este servicio se usa exclusivamente para:
+   *  1. Pre-renderizar imágenes de páginas en el procesamiento inicial (ReportProcessingService)
+   *  2. Renderizar páginas al vuelo para la visualización en el front (getOrCreatePageImage)
+   *
+   * Para la GENERACIÓN DE INFORMES FILTRADOS ya no se usa — ese pipeline corre en Python (pdf_filter.py).
    *
    * @param {Buffer|string} pdfSource   - Buffer del PDF original o ruta al archivo en disco
    * @param {number[]}      pageNumbers - Páginas a renderizar (1-indexed)
@@ -65,12 +62,10 @@ class PageRenderService {
             results = await popplerRenderer.render(targetPdfPath, pageNumbers, options);
           } catch (popplerErr) {
             console.error('[PageRenderService] Poppler renderer failed. Falling back to Puppeteer...', popplerErr.message);
-            console.log('[PageRenderService] Using Puppeteer renderer (fallback)');
             results = await puppeteerRenderer.render(pdfSource, pageNumbers, options);
           }
         } else {
           console.warn('[PageRenderService] Poppler not available on Linux. Falling back to Puppeteer...');
-          console.log('[PageRenderService] Using Puppeteer renderer (fallback)');
           results = await puppeteerRenderer.render(pdfSource, pageNumbers, options);
         }
       } else if (platform === 'win32') {
@@ -79,7 +74,6 @@ class PageRenderService {
           results = await pdfjsRenderer.render(pdfSource, pageNumbers, options);
         } catch (pdfjsErr) {
           console.error('[PageRenderService] PDF.js renderer failed on Windows. Falling back to Puppeteer...', pdfjsErr.message);
-          console.log('[PageRenderService] Using Puppeteer renderer (fallback)');
           results = await puppeteerRenderer.render(pdfSource, pageNumbers, options);
         }
       } else {
@@ -89,7 +83,7 @@ class PageRenderService {
 
       const totalDuration = Date.now() - totalStartTime;
       const mem = process.memoryUsage();
-      console.log(`[PageRenderService] ✅ Procesamiento completado en ${totalDuration}ms. Memoria: ${Math.round(mem.heapUsed / 1024 / 1024)}MB heap.`);
+      console.log(`[PageRenderService] Procesamiento completado en ${totalDuration}ms. Memoria: ${Math.round(mem.heapUsed / 1024 / 1024)}MB heap.`);
       return results;
 
     } catch (err) {

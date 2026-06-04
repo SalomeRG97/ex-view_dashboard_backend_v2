@@ -1,11 +1,34 @@
 'use strict';
 
 const path           = require('path');
+const sharp          = require('sharp');
 const storageService = require('../../../storage/storageFactory');
 const pdfParser      = require('./PDFParserService');
 const pageRender     = require('./PageRenderService');
-const imageCrop      = require('./ImageCropService');
 const reportRepository = require('../report.repository');
+
+// Altura en píxeles del footer a recortar de cada página renderizada
+const FOOTER_CROP_PX = 40;
+
+/**
+ * Recorta el footer inferior de una imagen JPEG para ocultar el número de página original.
+ * @param {Buffer} imageBuffer - Buffer JPEG de la página renderizada
+ * @returns {Promise<Buffer>} Buffer JPEG sin el footer
+ */
+async function cropFooter(imageBuffer) {
+  try {
+    const meta = await sharp(imageBuffer).metadata();
+    const cropHeight = Math.max(1, meta.height - FOOTER_CROP_PX);
+    return await sharp(imageBuffer)
+      .extract({ left: 0, top: 0, width: meta.width, height: cropHeight })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+  } catch (err) {
+    // Si el recorte falla, devolver la imagen sin modificar
+    console.warn('[ReportProcessingService] cropFooter falló, usando imagen original:', err.message);
+    return imageBuffer;
+  }
+}
 
 class ReportProcessingService {
 
@@ -55,8 +78,8 @@ class ReportProcessingService {
         const imagePaths = [];
 
         for (const { page, buffer } of renderedPages) {
-          // 4. Recortar footer con Sharp
-          const cropped = await imageCrop.cropFooter(buffer);
+          // 4. Recortar footer con Sharp (inline)
+          const cropped = await cropFooter(buffer);
 
           // 5. Guardar en storage (local o FTP)
           const destPath = `processed/${reportId}/${section.type}/page-${page}.jpg`;
