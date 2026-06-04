@@ -19,14 +19,8 @@ class ReportProcessingService {
     try {
       await reportRepository.updateStatus(reportId, 'PROCESSING');
 
-      // Leer el PDF si se pasó como ruta temporal, para no mantener la memoria en multer
-      let pdfBuffer = processData;
-      if (typeof processData === 'string') {
-        pdfBuffer = fs.readFileSync(processData);
-      }
-
-      // 1. Parsear PDF para obtener texto y estructura de secciones
-      const { text, numPages, pages } = await pdfParser.parse(pdfBuffer);
+      // 1. Parsear PDF para obtener texto y estructura de secciones (ahora soporta string path)
+      const { text, numPages, pages } = await pdfParser.parse(processData);
       const detectedAnomalies = pdfParser.detectAnomalies(text);
       const sections          = pdfParser.detectPageRanges(text, numPages, detectedAnomalies, pages);
 

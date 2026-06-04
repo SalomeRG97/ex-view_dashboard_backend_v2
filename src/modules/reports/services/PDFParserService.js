@@ -22,12 +22,55 @@ const ANOMALY_TYPES = [
 class PDFParserService {
   /**
    * Extrae texto y metadata básica del PDF.
-   * @param {Buffer} buffer - Buffer del PDF
+   * @param {Buffer|string} input - Buffer del PDF o ruta al archivo
    * @returns {Promise<{text: string, numPages: number, info: object, pages: Array}>}
    */
-  async parse(buffer) {
+  async parse(input) {
+    if (typeof input === 'string') {
+      // Uso de script en Python para extracción sin saturar la RAM de Node
+      const { spawn } = require('child_process');
+      const path = require('path');
+      
+      return new Promise((resolve, reject) => {
+        const scriptPath = path.join(__dirname, '../../../../../pdf_pipeline/extract_text.py');
+        const python = spawn('python3', [scriptPath, input]);
+        
+        let outputData = '';
+        let errorData = '';
+        
+        python.stdout.on('data', (data) => {
+          outputData += data.toString();
+        });
+        
+        python.stderr.on('data', (data) => {
+          errorData += data.toString();
+        });
+        
+        python.on('close', (code) => {
+          if (code !== 0) {
+            return reject(new Error(`Python script failed with code ${code}: ${errorData}`));
+          }
+          
+          try {
+            const result = JSON.parse(outputData);
+            if (result.error) {
+              return reject(new Error(`Python script error: ${result.error}`));
+            }
+            resolve({
+              text: result.text || '',
+              numPages: result.numPages || 0,
+              info: {},
+              pages: result.pages || []
+            });
+          } catch (e) {
+            reject(new Error(`Failed to parse Python output: ${e.message}`));
+          }
+        });
+      });
+    }
+
     // pdf-parse v2 requiere Uint8Array en lugar de Buffer de Node
-    const uint8 = new Uint8Array(buffer);
+    const uint8 = new Uint8Array(input);
     const parser = new PDFParse(uint8);
     await parser.load();
     
