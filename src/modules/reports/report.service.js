@@ -5,7 +5,6 @@ const reportRepository   = require('./report.repository');
 const processingService  = require('./services/ReportProcessingService');
 const pythonPDFService   = require('./services/PythonPDFService');
 const pdfParser          = require('./services/PDFParserService');
-const pageRender         = require('./services/PageRenderService');
 
 class ReportService {
   /**
