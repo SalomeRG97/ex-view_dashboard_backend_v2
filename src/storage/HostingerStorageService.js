@@ -148,13 +148,34 @@ class HostingerStorageService extends StorageService {
 
     await this._withRetry(async (client) => {
       await client.ensureDir(remoteDir);
-      // Volver a navegar al directorio después de ensureDir
       await client.cd(remoteDir);
       const stream = Readable.from(buffer);
       await client.uploadFrom(stream, filename);
     });
 
     console.log(`[FTP] ✅ Archivo subido: ${destPath} (${Math.round(buffer.length / 1024)}KB)`);
+    return destPath.replace(/\\/g, '/');
+  }
+
+  /**
+   * Sube un archivo desde disco local a Hostinger vía FTP (Streaming).
+   * @param {string} localPath - Ruta del archivo local en disco
+   * @param {string} destPath - Ruta relativa en el servidor FTP
+   * @returns {Promise<string>} ruta relativa guardada
+   */
+  async saveFile(localPath, destPath) {
+    const remoteFilePath = this._remotePath(destPath);
+    const remoteDir      = path.posix.dirname(remoteFilePath);
+    const filename       = path.posix.basename(remoteFilePath);
+
+    await this._withRetry(async (client) => {
+      await client.ensureDir(remoteDir);
+      await client.cd(remoteDir);
+      await client.uploadFrom(localPath, filename);
+    });
+
+    const stat = fs.statSync(localPath);
+    console.log(`[FTP] ✅ Archivo subido (streaming): ${destPath} (${Math.round(stat.size / 1024)}KB)`);
     return destPath.replace(/\\/g, '/');
   }
 

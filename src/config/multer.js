@@ -1,9 +1,18 @@
 const multer = require('multer');
 
-// ── Multer con almacenamiento en memoria (Buffer) ──────────────
-// Usamos memoryStorage para luego pasar el buffer a nuestro StorageService
-// abstracto. Así la migración a S3 no requiere cambiar nada en multer.
-const storage = multer.memoryStorage();
+const os = require('os');
+
+// ── Multer con almacenamiento en disco ──────────────
+// Usamos diskStorage para evitar colapsar la RAM con PDFs de 300+ MB.
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, os.tmpdir());
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + '.pdf');
+  }
+});
 
 const fileFilter = (req, file, cb) => {
   if (file.mimetype === 'application/pdf') {

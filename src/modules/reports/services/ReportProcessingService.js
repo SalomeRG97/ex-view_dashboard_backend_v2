@@ -10,13 +10,20 @@ class ReportProcessingService {
   /**
    * Procesa el PDF de forma asíncrona: parsea secciones sin renderizar imágenes.
    * @param {string} reportId  - ID del reporte en DB
-   * @param {Buffer} pdfBuffer - Buffer del PDF original
+   * @param {Buffer|string} processData - Buffer del PDF o ruta al archivo en disco
    */
-  async process(reportId, pdfBuffer) {
+  async process(reportId, processData) {
     const startTime = Date.now();
+    const fs = require('fs');
 
     try {
       await reportRepository.updateStatus(reportId, 'PROCESSING');
+
+      // Leer el PDF si se pasó como ruta temporal, para no mantener la memoria en multer
+      let pdfBuffer = processData;
+      if (typeof processData === 'string') {
+        pdfBuffer = fs.readFileSync(processData);
+      }
 
       // 1. Parsear PDF para obtener texto y estructura de secciones
       const { text, numPages, pages } = await pdfParser.parse(pdfBuffer);
@@ -62,6 +69,15 @@ class ReportProcessingService {
     } catch (err) {
       console.error(`[ReportProcessingService] ❌ Error procesando reporte ${reportId}:`, err.message || err);
       await reportRepository.updateStatus(reportId, 'FAILED');
+    } finally {
+      if (typeof processData === 'string') {
+        try {
+          fs.unlinkSync(processData);
+          console.log(`[ReportProcessingService] 🧹 Archivo temporal borrado: ${processData}`);
+        } catch (e) {
+          console.error(`[ReportProcessingService] ⚠️ No se pudo borrar el archivo temporal: ${e.message}`);
+        }
+      }
     }
   }
 }

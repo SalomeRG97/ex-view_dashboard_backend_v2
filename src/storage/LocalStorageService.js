@@ -25,6 +25,24 @@ class LocalStorageService extends StorageService {
   }
 
   /**
+   * Copia un archivo desde una ruta local a la ruta de destino
+   * @param {string} localPath 
+   * @param {string} destPath 
+   * @returns {Promise<string>}
+   */
+  async saveFile(localPath, destPath) {
+    const fullPath = path.join(STORAGE_ROOT, destPath);
+    const dir = path.dirname(fullPath);
+
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    await fs.promises.copyFile(localPath, fullPath);
+    return destPath;
+  }
+
+  /**
    * Elimina un archivo del disco
    * @param {string} filePath - ruta relativa guardada en DB
    */

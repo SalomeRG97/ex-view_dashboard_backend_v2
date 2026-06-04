@@ -17,9 +17,15 @@ class ReportService {
     // Corregir codificación del nombre original si viene corrupto por Multer/Latin1
     const fixedName = this.fixUtf8Encoding(file.originalname);
 
-    // 1. Guardar PDF original en storage
+    // 1. Guardar PDF original en storage usando el archivo temporal
     const destPath = `reports/${dashboardId}/${Date.now()}-${fixedName}`;
-    await storageService.save(file.buffer, destPath);
+    
+    // Si viene desde diskStorage, usa saveFile. Si por alguna razón es buffer, usa save.
+    if (file.path) {
+      await storageService.saveFile(file.path, destPath);
+    } else {
+      await storageService.save(file.buffer, destPath);
+    }
 
     // 2. Crear registro en DB con status UPLOADED
     const report = await reportRepository.create({
@@ -30,10 +36,10 @@ class ReportService {
       status:       'UPLOADED',
     });
 
-    // 3. Disparar procesamiento async (no await → no bloquea la respuesta)
-    processingService.process(report.id, file.buffer).catch(err => {
-      console.error('[ReportService] ⚠️ Procesamiento async falló (el PDF sí fue guardado):', err.message);
-      console.error('[ReportService] 💡 Verifica que Ghostscript/Poppler estén instalados para el procesamiento de páginas.');
+    // 3. Disparar procesamiento async pasando el archivo o buffer
+    const processData = file.path || file.buffer;
+    processingService.process(report.id, processData).catch(err => {
+      console.error('[ReportService] ⚠️ Procesamiento async falló:', err.message);
     });
 
     return report;
