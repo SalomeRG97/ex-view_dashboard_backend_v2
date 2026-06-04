@@ -4,7 +4,7 @@
   "description": "Embeddable anomaly dashboard for photovoltaic installations",
   "main": "server.js",
   "scripts": {
-    "start": "node --max-old-space-size=256 server.js",
+    "start": "node server.js",
     "dev": "nodemon server.js",
     "postinstall": "prisma generate"
   },
