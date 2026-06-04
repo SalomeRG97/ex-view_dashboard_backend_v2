@@ -15,18 +15,24 @@ class PuppeteerRenderer {
    * @param {object}   options     - Opciones
    * @returns {Promise<Array<{page: number, buffer: Buffer}>>}
    */
-  async render(pdfBuffer, pageNumbers, options = {}) {
+  async render(pdfSource, pageNumbers, options = {}) {
     const results      = [];
     let   browser      = null;
     let   tempHtmlPath = null;
     let   tempPdfPath  = null;
+    let   tempPdfWritten = false;
 
     try {
       const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-      // Escribir PDF a disco para que Puppeteer lo lea vía file:///
-      tempPdfPath = path.join(os.tmpdir(), `temp-pdf-puppeteer-${uniqueSuffix}.pdf`);
-      await fs.promises.writeFile(tempPdfPath, pdfBuffer);
+      // Escribir PDF a disco para que Puppeteer lo lea vía file:/// si es un Buffer
+      if (typeof pdfSource === 'string') {
+        tempPdfPath = pdfSource;
+      } else {
+        tempPdfPath = path.join(os.tmpdir(), `temp-pdf-puppeteer-${uniqueSuffix}.pdf`);
+        await fs.promises.writeFile(tempPdfPath, pdfSource);
+        tempPdfWritten = true;
+      }
 
       // Resolver rutas de pdfjs-dist instalado en node_modules
       const pdfJsPath        = path.resolve(__dirname, '../../../../../node_modules/pdfjs-dist/build/pdf.min.mjs');
@@ -174,7 +180,7 @@ class PuppeteerRenderer {
       if (tempHtmlPath && fs.existsSync(tempHtmlPath)) {
         try { await fs.promises.unlink(tempHtmlPath); } catch { /* ignorar */ }
       }
-      if (tempPdfPath && fs.existsSync(tempPdfPath)) {
+      if (tempPdfWritten && tempPdfPath && fs.existsSync(tempPdfPath)) {
         try { await fs.promises.unlink(tempPdfPath); } catch { /* ignorar */ }
       }
     }

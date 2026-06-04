@@ -119,26 +119,42 @@ class ReportService {
       throw new Error('El reporte aún no está listo para generar. Estado: ' + report.status);
     }
 
-    // 1. Obtener buffer del PDF original
+    // 1. Descargar PDF original directamente a un archivo temporal en disco (Streaming)
     const exists = await storageService.exists(report.storagePath);
     if (!exists) {
       throw new Error('No se encontró el archivo PDF original en el servidor.');
     }
-    const pdfBuffer = await storageService.download(report.storagePath);
+    
+    const tempDir = os.tmpdir();
+    const tempOriginalPdfPath = path.join(tempDir, `temp-original-${reportId}-${Date.now()}-${Math.random().toString(36).substring(7)}.pdf`);
+    const tempFilesToDelete = [tempOriginalPdfPath];
 
-    // 2. Parsear el PDF para obtener texto y estructura de páginas
-    const { text, numPages, pages: pdfPages } = await pdfParser.parse(pdfBuffer);
+    const readableStream = await storageService.getReadableStream(report.storagePath);
+    const writeStream = fs.createWriteStream(tempOriginalPdfPath);
 
-    // 3. Obtener entradas de la Tabla de Contenidos original
+    await new Promise((resolve, reject) => {
+      readableStream.pipe(writeStream);
+      writeStream.on('finish', resolve);
+      readableStream.on('error', reject);
+      writeStream.on('error', reject);
+    });
+
+    // 2. Parsear el PDF para obtener texto y estructura de páginas de forma temporal
+    let pdfBufferForParsing = await fs.promises.readFile(tempOriginalPdfPath);
+    const { text, numPages, pages: pdfPages } = await pdfParser.parse(pdfBufferForParsing);
     const tocEntries = pdfParser.parseTOCEntries(pdfPages, numPages);
 
-    // 4. Determinar qué páginas originales se mantendrán
+    // Liberar memoria del parseador inmediatamente
+    pdfBufferForParsing = null;
+    if (global.gc) {
+      global.gc();
+    }
+
+    // 3. Determinar qué páginas originales se mantendrán
     // Página 1: Sí (portada)
     // Página 2: No (reemplazada por la nueva TOC)
-    // Páginas 3+: Sí, a menos que sean de una anomalía excluida
     const originalPagesToKeep = [1];
     for (let p = 3; p <= numPages; p++) {
-      // Buscar si pertenece a alguna sección de anomalía
       const section = report.sections.find(s => p >= s.pageStart && p <= s.pageEnd);
       if (section) {
         const isSelected = selectedSectionIds.includes(section.id) || selectedTypes.includes(section.type);
@@ -154,23 +170,18 @@ class ReportService {
       throw new Error('No hay páginas disponibles para incluir en el reporte final.');
     }
 
-    // 5. Crear mapa de correspondencia: p_original -> p_nueva
-    // En el PDF nuevo:
-    // Pág 1: Portada (original 1)
-    // Pág 2: Nueva TOC
-    // Pág 3+: Páginas de originalPagesToKeep en orden (empezando desde el índice 1 del array)
+    // 4. Crear mapa de correspondencia: p_original -> p_nueva
     const originalToNewPageMap = new Map();
     originalToNewPageMap.set(1, 1);
     for (let i = 1; i < originalPagesToKeep.length; i++) {
       originalToNewPageMap.set(originalPagesToKeep[i], i + 2);
     }
 
-    // 6. Filtrar y recalcular las entradas de la Tabla de Contenidos
+    // 5. Filtrar y recalcular las entradas de la Tabla de Contenidos
     const newTOCEntries = [];
     for (let idx = 0; idx < tocEntries.length; idx++) {
       const entry = tocEntries[idx];
       if (entry.isSub) {
-        // Subsección: se mantiene si su página original exacta está mapeada
         if (originalToNewPageMap.has(entry.originalPageNum)) {
           newTOCEntries.push({
             label: entry.title,
@@ -179,8 +190,6 @@ class ReportService {
           });
         }
       } else {
-        // Sección principal: se mantiene si alguna página en su rango está mapeada.
-        // El rango va desde su página hasta la página anterior a la siguiente sección principal.
         const nextMain = tocEntries.slice(idx + 1).find(e => !e.isSub);
         const startPage = entry.originalPageNum;
         const endPage = nextMain ? nextMain.originalPageNum - 1 : numPages;
@@ -205,199 +214,304 @@ class ReportService {
 
     const tocHtml = tocService.renderTOCHtml(newTOCEntries);
 
-    // 7. Determinar qué páginas deben renderizarse al vuelo
-    // Son aquellas en originalPagesToKeep que no tienen imágenes pre-procesadas en disco.
-    // O si son la página 1 (portada).
-    const pagesToRenderOnTheFly = [];
-    const pageImageSources = new Map(); // p_original -> ruta de la imagen (file:///)
+    // 6. Preparar chunks secuenciales por anomalía (sin descargas ni renderizado)
+    const anomalySections = [...(report.sections || [])];
+    anomalySections.sort((a, b) => a.pageStart - b.pageStart);
 
-    for (const p of originalPagesToKeep) {
-      if (p === 1) {
-        pagesToRenderOnTheFly.push(p);
-        continue;
-      }
+    const firstSectionStart = anomalySections.length > 0 ? Math.min(...anomalySections.map(s => s.pageStart)) : 999999;
+    const lastSectionEnd = anomalySections.length > 0 ? Math.max(...anomalySections.map(s => s.pageEnd)) : -1;
 
-      // Buscar si pertenece a alguna sección de anomalía
-      const section = report.sections.find(s => p >= s.pageStart && p <= s.pageEnd);
-      if (section) {
-        const imgRelPath = `processed/${reportId}/${section.type}/page-${p}.jpg`;
-        const exists = await storageService.exists(imgRelPath);
+    const PDF_CHUNK_SIZE            = parseInt(process.env.PDF_CHUNK_SIZE            || '25', 10);
+    const PDF_CHUNK_RESTART_INTERVAL = parseInt(process.env.PDF_CHUNK_RESTART_INTERVAL || '4',  10);
+    const chunksToProcess = [];
 
-        if (exists) {
-          // Usar la imagen recortada pre-procesada
-          const publicUrlOrPath = storageService.getPublicUrl(imgRelPath);
-          const fileUrl = (publicUrlOrPath.startsWith('http://') || publicUrlOrPath.startsWith('https://'))
-            ? publicUrlOrPath
-            : url.pathToFileURL(publicUrlOrPath).href;
-          pageImageSources.set(p, fileUrl);
-        } else {
-          // Si no existe el recorte, renderizar al vuelo
-          pagesToRenderOnTheFly.push(p);
-        }
-      } else {
-        // Páginas fuera de anomalías: renderizar al vuelo
-        pagesToRenderOnTheFly.push(p);
+    // A. Bloque Intro (Portada + TOC)
+    chunksToProcess.push({
+      type: 'intro',
+      pages: [1]
+    });
+
+    // B. Bloques de Contenido Previos a Resultados (Pre-Resultados: Glosario, Introducción, etc.)
+    const preResultPages = originalPagesToKeep.filter(p => p > 1 && p < firstSectionStart);
+    for (let j = 0; j < preResultPages.length; j += PDF_CHUNK_SIZE) {
+      chunksToProcess.push({
+        type: 'pre-results',
+        pages: preResultPages.slice(j, j + PDF_CHUNK_SIZE)
+      });
+    }
+
+    // C. Bloques de Resultados (Anomalías)
+    for (const section of anomalySections) {
+      const sectionPages = originalPagesToKeep.filter(p => p >= section.pageStart && p <= section.pageEnd);
+      if (sectionPages.length === 0) continue;
+
+      for (let j = 0; j < sectionPages.length; j += PDF_CHUNK_SIZE) {
+        chunksToProcess.push({
+          type: 'anomaly',
+          label: section.label,
+          sectionType: section.type,
+          pages: sectionPages.slice(j, j + PDF_CHUNK_SIZE)
+        });
       }
     }
 
-    const tempFilesToDelete = [];
+    // D. Bloques Huérfanos (por seguridad si hay páginas en rango de resultados no asignadas a secciones)
+    const orphanPages = [];
+    for (const p of originalPagesToKeep) {
+      if (p > 1 && p >= firstSectionStart && p <= lastSectionEnd) {
+        const inSection = anomalySections.some(s => p >= s.pageStart && p <= s.pageEnd);
+        if (!inSection) {
+          orphanPages.push(p);
+        }
+      }
+    }
+    for (let j = 0; j < orphanPages.length; j += PDF_CHUNK_SIZE) {
+      chunksToProcess.push({
+        type: 'orphan',
+        pages: orphanPages.slice(j, j + PDF_CHUNK_SIZE)
+      });
+    }
+
+    // E. Bloque Final (Post-Resultados: Conclusiones, Certificados, Anexos)
+    const postResultPages = originalPagesToKeep.filter(p => p > 1 && p > lastSectionEnd);
+    for (let j = 0; j < postResultPages.length; j += PDF_CHUNK_SIZE) {
+      chunksToProcess.push({
+        type: 'post-results',
+        pages: postResultPages.slice(j, j + PDF_CHUNK_SIZE)
+      });
+    }
+
+    const generatedAt = new Date().toLocaleDateString('es-MX', {
+      year: 'numeric', month: 'long', day: 'numeric',
+    });
+
+    // Resolver la ruta del logo del frontend
+    let logoUrl = process.env.LOGO_URL;
+    if (!logoUrl) {
+      const logoPath = path.join(__dirname, '..', '..', '..', '..', 'frontend', 'media', 'logo-nav.png');
+      logoUrl = url.pathToFileURL(logoPath).href;
+    }
+
+    const chunkPdfPaths = [];
+    const puppeteer = require('puppeteer');
+
+    const launchOptions = {
+      headless: 'new',
+      protocolTimeout: 300000,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-features=FirstPartySets',
+        '--allow-file-access-from-files',
+        '--disable-web-security',
+      ],
+    };
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+      launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+
+    // Helper: lanzar (o relanzar) el browser de Puppeteer
+    const launchBrowser = async (currentBrowser) => {
+      if (currentBrowser) {
+        try { await currentBrowser.close(); } catch (_) {}
+        currentBrowser = null;
+        if (global.gc) global.gc();
+        // Pequeña pausa para que el SO libere memoria del proceso Chromium anterior
+        await new Promise(resolve => setTimeout(resolve, 400));
+      }
+      const mem = process.memoryUsage();
+      console.log(`[Pipeline] Lanzando Chromium. RSS actual: ${Math.round(mem.rss / 1024 / 1024)}MB`);
+      return puppeteer.launch(launchOptions);
+    };
+
+    console.log(`[Pipeline] Iniciando generación de PDF. Chunks totales: ${chunksToProcess.length}, CHUNK_SIZE=${PDF_CHUNK_SIZE}, RESTART_INTERVAL=${PDF_CHUNK_RESTART_INTERVAL}`);
+    let browser = await launchBrowser(null);
+    let chunksSinceRestart = 0;
 
     try {
-      // 8. Renderizar al vuelo las páginas necesarias
-      if (pagesToRenderOnTheFly.length > 0) {
-        const rendered = await pageRender.renderPages(pdfBuffer, pagesToRenderOnTheFly);
-        
-        for (const { page, buffer } of rendered) {
-          let finalBuffer = buffer;
-          if (page > 1) {
-            finalBuffer = await imageCrop.cropFooter(buffer);
-          }
+      for (let chunkIdx = 0; chunkIdx < chunksToProcess.length; chunkIdx++) {
+        const chunk = chunksToProcess[chunkIdx];
 
-          // Crear un archivo temporal para la página renderizada en el directorio temporal del OS
-          const tempFileName = `temp-render-${reportId}-${page}-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
+        // ── Reiniciar Chromium cada PDF_CHUNK_RESTART_INTERVAL chunks ──────────
+        if (chunksSinceRestart >= PDF_CHUNK_RESTART_INTERVAL) {
+          console.log(`[Pipeline] Reiniciando Chromium tras ${chunksSinceRestart} chunks (intervalo=${PDF_CHUNK_RESTART_INTERVAL})...`);
+          browser = await launchBrowser(browser);
+          chunksSinceRestart = 0;
+        }
+        console.log(`[Pipeline] Chunk ${chunkIdx + 1}/${chunksToProcess.length} (${chunk.type}, páginas original: ${chunk.pages.join(', ')})`);
+
+        const tempImagesToDelete = [];
+        const pageImageSources = new Map(); // p_original -> local file URL
+
+        // 1. Descargar o renderizar imágenes de forma SECUENCIAL (uno por uno)
+        for (const p of chunk.pages) {
+          const tempFileName = `temp-img-${reportId}-${p}-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
           const tempFilePath = path.join(os.tmpdir(), tempFileName);
 
-          await fs.promises.writeFile(tempFilePath, finalBuffer);
-          tempFilesToDelete.push(tempFilePath);
-
-          const fileUrl = url.pathToFileURL(tempFilePath).href;
-          pageImageSources.set(page, fileUrl);
-        }
-      }
-
-      // 9. Construir la estructura final de páginas para el constructor HTML
-      // Debe excluir la página 1 (se pasa por separado como coverPageSrc)
-      const pagesForBuilder = [];
-      const totalPages = originalPagesToKeep.length + 1;
-
-      // Helper para buscar el título de sección de la TOC original que corresponde a una página
-      const getPageLabel = (p) => {
-        let bestEntry = null;
-        for (const entry of tocEntries) {
-          if (entry.originalPageNum <= p) {
-            bestEntry = entry;
-          } else {
-            break;
+          let imgDownloaded = false;
+          if (p > 1) {
+            // Buscar si es anomalía y si su recorte ya existe pre-procesado
+            const section = report.sections.find(s => p >= s.pageStart && p <= s.pageEnd);
+            if (section) {
+              const imgRelPath = `processed/${reportId}/${section.type}/page-${p}.jpg`;
+              const exists = await storageService.exists(imgRelPath);
+              if (exists) {
+                // Descargar secuencialmente del storage
+                let imgBuffer = await storageService.download(imgRelPath);
+                await fs.promises.writeFile(tempFilePath, imgBuffer);
+                imgBuffer = null; // Liberar buffer inmediatamente
+                imgDownloaded = true;
+              }
+            }
           }
+
+          // Si no se descargó (o es la portada), renderizar al vuelo
+          if (!imgDownloaded) {
+            const rendered = await pageRender.renderPages(tempOriginalPdfPath, [p]);
+            if (rendered && rendered.length > 0) {
+              let buffer = rendered[0].buffer;
+              if (p > 1) {
+                buffer = await imageCrop.cropFooter(buffer);
+              }
+              await fs.promises.writeFile(tempFilePath, buffer);
+              buffer = null; // Liberar buffer inmediatamente
+            } else {
+              throw new Error(`No se pudo generar la imagen para la página original ${p}`);
+            }
+          }
+
+          tempImagesToDelete.push(tempFilePath);
+          pageImageSources.set(p, url.pathToFileURL(tempFilePath).href);
         }
-        return bestEntry ? bestEntry.title : '';
-      };
 
-      for (let i = 1; i < originalPagesToKeep.length; i++) {
-        const p = originalPagesToKeep[i];
-        const newPageNum = originalToNewPageMap.get(p);
-        const src = pageImageSources.get(p);
+        // 2. Construir HTML de este chunk
+        let htmlContent = '';
+        if (chunk.type === 'intro') {
+          const coverPageSrc = pageImageSources.get(1);
+          htmlContent = htmlBuilderService.buildIntroChunk({
+            coverPageSrc,
+            tocHtml,
+            dashboardName,
+            logoUrl,
+          });
+        } else {
+          const chunkPagesForBuilder = [];
+          
+          const getPageLabel = (p) => {
+            let bestEntry = null;
+            for (const entry of tocEntries) {
+              if (entry.originalPageNum <= p) {
+                bestEntry = entry;
+              } else {
+                break;
+              }
+            }
+            return bestEntry ? bestEntry.title : '';
+          };
 
-        if (!src) {
-          throw new Error(`No se pudo generar la imagen para la página original ${p}`);
+          for (const p of chunk.pages) {
+            const newPageNum = originalToNewPageMap.get(p);
+            const src = pageImageSources.get(p);
+            const section = report.sections.find(s => p >= s.pageStart && p <= s.pageEnd);
+            const label = section ? section.label : (getPageLabel(p) || 'Informe Solar');
+
+            chunkPagesForBuilder.push({
+              src,
+              pageNum: newPageNum,
+              label,
+            });
+          }
+
+          htmlContent = htmlBuilderService.buildContentChunk({ pages: chunkPagesForBuilder });
         }
 
-        // Obtener el label dinámico
-        const section = report.sections.find(s => p >= s.pageStart && p <= s.pageEnd);
-        const label = section ? section.label : (getPageLabel(p) || 'Informe Solar');
+        // 3. Renderizar PDF temporal para este chunk
+        const tempHtmlPath = path.join(os.tmpdir(), `temp-chunk-${chunkIdx}-${Date.now()}.html`);
+        const tempPdfPath  = path.join(os.tmpdir(), `temp-chunk-${chunkIdx}-${Date.now()}.pdf`);
 
-        pagesForBuilder.push({
-          src,
-          pageNum: newPageNum,
-          label,
-          originalPage: p,
+        await fs.promises.writeFile(tempHtmlPath, htmlContent, 'utf8');
+        htmlContent = null; // Liberar string html inmediatamente
+
+        let page = await browser.newPage();
+        page.setDefaultTimeout(180000);
+        page.setDefaultNavigationTimeout(180000);
+
+        await page.goto(url.pathToFileURL(tempHtmlPath).href, {
+          waitUntil: 'load',
+          timeout: 90000,
         });
-      }
 
-      const coverPageSrc = pageImageSources.get(1);
-      if (!coverPageSrc) {
-        throw new Error('No se pudo generar la portada del informe.');
-      }
+        // Esperar imágenes y fuentes
+        await page.evaluate(async () => {
+          await Promise.all(
+            Array.from(document.images)
+              .filter(img => !img.complete)
+              .map(img => new Promise(resolve => {
+                img.onload = resolve;
+                img.onerror = resolve;
+              }))
+          );
+          await document.fonts.ready;
+          await new Promise(resolve => setTimeout(resolve, 100));
+        });
 
-      const generatedAt = new Date().toLocaleDateString('es-MX', {
-        year: 'numeric', month: 'long', day: 'numeric',
-      });
+        await page.pdf({
+          path: tempPdfPath,
+          format: 'A4',
+          printBackground: true,
+          margin: { top: 0, right: 0, bottom: 0, left: 0 },
+          preferCSSPageSize: true,
+        });
 
-      // Resolver la ruta del logo del frontend
-      let logoUrl = process.env.LOGO_URL;
-      if (!logoUrl) {
-        const logoPath = path.join(__dirname, '..', '..', '..', '..', 'frontend', 'media', 'logo-nav.png');
-        logoUrl = url.pathToFileURL(logoPath).href;
-      }
+        await page.close();
+        page = null;
 
-      // 10. Construcción Inteligente por Chunks y Unión (Merging)
-      const anomalySections = [...(report.sections || [])];
-      anomalySections.sort((a, b) => a.pageStart - b.pageStart);
+        // Limpiar HTML temporal de inmediato
+        try { await fs.promises.unlink(tempHtmlPath); } catch (_) {}
 
-      const firstSectionStart = anomalySections.length > 0 ? Math.min(...anomalySections.map(s => s.pageStart)) : 999999;
-      const lastSectionEnd = anomalySections.length > 0 ? Math.max(...anomalySections.map(s => s.pageEnd)) : -1;
+        chunkPdfPaths.push(tempPdfPath);
 
-      const preResultPages = pagesForBuilder.filter(pg => pg.originalPage < firstSectionStart);
-      const postResultPages = pagesForBuilder.filter(pg => pg.originalPage > lastSectionEnd);
-
-      const PDF_CHUNK_SIZE = parseInt(process.env.PDF_CHUNK_SIZE || '25', 10);
-      const htmlChunks = [];
-
-      // A. Bloque Intro (Portada + TOC)
-      htmlChunks.push(
-        htmlBuilderService.buildIntroChunk({
-          coverPageSrc,
-          tocHtml,
-          dashboardName,
-          logoUrl,
-        })
-      );
-
-      // B. Bloques de Contenido Previos a Resultados (Pre-Resultados)
-      if (preResultPages.length > 0) {
-        for (let j = 0; j < preResultPages.length; j += PDF_CHUNK_SIZE) {
-          const chunkPages = preResultPages.slice(j, j + PDF_CHUNK_SIZE);
-          htmlChunks.push(htmlBuilderService.buildContentChunk({ pages: chunkPages }));
-        }
-      }
-
-      // C. Bloques de Resultados (Anomalías)
-      for (const section of anomalySections) {
-        const sectionPages = pagesForBuilder.filter(pg => pg.originalPage >= section.pageStart && pg.originalPage <= section.pageEnd);
-        if (sectionPages.length === 0) continue;
-
-        // Dividir si supera PDF_CHUNK_SIZE páginas
-        for (let j = 0; j < sectionPages.length; j += PDF_CHUNK_SIZE) {
-          const chunkPages = sectionPages.slice(j, j + PDF_CHUNK_SIZE);
-          htmlChunks.push(htmlBuilderService.buildContentChunk({ pages: chunkPages }));
-        }
-      }
-
-      // D. Bloques Huérfanos (por seguridad si hay páginas en rango de resultados no asignadas a secciones)
-      const orphanPages = [];
-      for (const pg of pagesForBuilder) {
-        if (pg.originalPage >= firstSectionStart && pg.originalPage <= lastSectionEnd) {
-          const inSection = anomalySections.some(s => pg.originalPage >= s.pageStart && pg.originalPage <= s.pageEnd);
-          if (!inSection) {
-            orphanPages.push(pg);
+        // 4. Limpiar imágenes temporales de este chunk de inmediato
+        for (const imgPath of tempImagesToDelete) {
+          try {
+            if (fs.existsSync(imgPath)) {
+              await fs.promises.unlink(imgPath);
+            }
+          } catch (err) {
+            console.warn(`Warning: No se pudo eliminar imagen temporal ${imgPath}:`, err.message);
           }
         }
-      }
-      if (orphanPages.length > 0) {
-        for (let j = 0; j < orphanPages.length; j += PDF_CHUNK_SIZE) {
-          const chunkPages = orphanPages.slice(j, j + PDF_CHUNK_SIZE);
-          htmlChunks.push(htmlBuilderService.buildContentChunk({ pages: chunkPages }));
+
+        // 5. Liberar memoria
+        if (global.gc) {
+          global.gc();
         }
+        chunksSinceRestart++;
+
+        const mem = process.memoryUsage();
+        console.log(`[Pipeline] Chunk ${chunkIdx + 1}/${chunksToProcess.length} completado. RAM RSS: ${Math.round(mem.rss / 1024 / 1024)}MB | Chromium chunks: ${chunksSinceRestart}/${PDF_CHUNK_RESTART_INTERVAL}`);
       }
 
-      // E. Bloque Final (Post-Resultados: Conclusiones, Certificados, Anexos)
-      if (postResultPages.length > 0) {
-        for (let j = 0; j < postResultPages.length; j += PDF_CHUNK_SIZE) {
-          const chunkPages = postResultPages.slice(j, j + PDF_CHUNK_SIZE);
-          htmlChunks.push(htmlBuilderService.buildContentChunk({ pages: chunkPages }));
-        }
-      }
+      await browser.close();
 
-      // ── Generar PDFs parciales secuencialmente ───────────────────────────
-      console.log(`[ReportService] Generando informe en ${htmlChunks.length} chunks con tamaño máximo de ${PDF_CHUNK_SIZE} páginas por chunk.`);
-      const chunkPaths = await pdfGeneratorService.generateChunked(htmlChunks);
-
-      // ── Unir los PDFs ────────────────────────────────────────────────────
+      // 6. Unir los chunks PDF generados secuencialmente
       console.log(`[ReportService] Uniendo chunks con pdf-lib...`);
-      const tempPdfPath = await pdfMergerService.merge(chunkPaths);
+      const mergedPdfPath = await pdfMergerService.merge(chunkPdfPaths);
+      return mergedPdfPath;
 
-      return tempPdfPath;
-
+    } catch (err) {
+      if (browser) {
+        try { await browser.close(); } catch (_) {}
+      }
+      // Limpiar PDFs chunk en caso de error
+      for (const pdfPath of chunkPdfPaths) {
+        if (fs.existsSync(pdfPath)) {
+          try { fs.unlinkSync(pdfPath); } catch (_) {}
+        }
+      }
+      throw err;
     } finally {
       // 11. Eliminar archivos temporales de forma segura
       for (const tempPath of tempFilesToDelete) {
@@ -411,7 +525,6 @@ class ReportService {
       }
     }
   }
-
 
   /**
    * Eliminar reporte y sus archivos del storage.

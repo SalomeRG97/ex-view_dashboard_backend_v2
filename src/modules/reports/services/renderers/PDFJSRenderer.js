@@ -12,7 +12,7 @@ class PDFJSRenderer {
    * @param {object}   options     - Opciones
    * @returns {Promise<Array<{page: number, buffer: Buffer}>>}
    */
-  async render(pdfBuffer, pageNumbers, options = {}) {
+  async render(pdfSource, pageNumbers, options = {}) {
     const results = [];
     if (!pageNumbers || pageNumbers.length === 0) return results;
 
@@ -35,8 +35,11 @@ class PDFJSRenderer {
       const cmapsPath = path.resolve(__dirname, '../../../../../node_modules/pdfjs-dist/cmaps');
       const cMapUrl = cmapsPath + (cmapsPath.endsWith(path.sep) ? '' : path.sep);
 
-      // 4. Cargar el PDF desde el buffer
-      const uint8Array = new Uint8Array(pdfBuffer);
+      // 4. Cargar el PDF desde el buffer o de disco
+      const uint8Array = typeof pdfSource === 'string'
+        ? new Uint8Array(await fs.promises.readFile(pdfSource))
+        : new Uint8Array(pdfSource);
+
       const loadingTask = pdfjsLib.getDocument({
         data: uint8Array,
         verbosity: 0,
