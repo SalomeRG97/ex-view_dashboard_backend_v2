@@ -154,13 +154,13 @@ def build_warning_page() -> bytes:
     page_w, page_h = A4
     c = rl_canvas.Canvas(buf, pagesize=A4)
 
-    from reportlab.platypus import Paragraph, Frame, Table, TableStyle
+    from reportlab.platypus import Paragraph
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.colors import HexColor
 
     text_html_bold = (
-        '<font color="#E74C3C" size="28"><b>NOTA IMPORTANTE</b></font><br/><br/><br/>'
+        '<font color="#000000" size="28"><b>NOTA IMPORTANTE</b></font><br/><br/><br/>'
         'Les recordamos que el informe que se entrega es completo en su '
         'versión base. La plataforma permite aplicar filtros para ajustarlo a las necesidades '
         'específicas de cada usuario.<br/><br/>'
@@ -173,8 +173,8 @@ def build_warning_page() -> bytes:
     style = ParagraphStyle(
         name='WarningStyle',
         fontName='Helvetica-Bold',
-        fontSize=20,
-        leading=30,
+        fontSize=16,
+        leading=26,
         alignment=TA_CENTER,
         textColor=HexColor('#333333')
     )
@@ -185,26 +185,16 @@ def build_warning_page() -> bytes:
     rect_h = page_h * 0.60
     rect_x = 40
     rect_y = (page_h - rect_h) / 2
-    
-    # Líneas superior e inferior
-    c.setStrokeColor(HexColor('#E74C3C'))
-    c.setLineWidth(3)
-    c.line(rect_x, rect_y + rect_h, rect_x + rect_w, rect_y + rect_h)
-    c.line(rect_x, rect_y, rect_x + rect_w, rect_y)
 
     frame_w = rect_w - 40
     frame_h = rect_h - 40
     frame_x = rect_x + 20
     frame_y = rect_y + 20
 
-    t = Table([[p]], colWidths=[frame_w], rowHeights=[frame_h])
-    t.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-    ]))
+    w, h = p.wrap(frame_w, frame_h)
+    # Centrar verticalmente dentro del contenedor
+    p.drawOn(c, frame_x, frame_y + (frame_h - h) / 2)
 
-    f = Frame(frame_x, frame_y, frame_w, frame_h, showBoundary=0)
-    f.addFromList([t], c)
     c.save()
     return buf.getvalue()
 
