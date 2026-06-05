@@ -148,6 +148,67 @@ def parse_toc(pdf_path: str) -> list[dict]:
     return entries
 
 
+def build_warning_page() -> bytes:
+    """Construye una página de advertencia para insertar al inicio del PDF."""
+    buf = io.BytesIO()
+    page_w, page_h = A4
+    c = rl_canvas.Canvas(buf, pagesize=A4)
+
+    from reportlab.platypus import Paragraph, Frame, Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.colors import HexColor
+
+    text_html_bold = (
+        '<font color="#E74C3C" size="28"><b>NOTA IMPORTANTE</b></font><br/><br/><br/>'
+        'Les recordamos que el informe que se entrega es completo en su '
+        'versión base. La plataforma permite aplicar filtros para ajustarlo a las necesidades '
+        'específicas de cada usuario.<br/><br/>'
+        'Queremos subrayar que cualquier ajuste o filtrado que '
+        'se aplique es responsabilidad de ustedes. Les recomendamos verificar que no se '
+        'omitan datos clave, de cara al análisis final del cliente.<br/><br/>'
+        'Muchas gracias por su atención.'
+    )
+
+    style = ParagraphStyle(
+        name='WarningStyle',
+        fontName='Helvetica-Bold',
+        fontSize=20,
+        leading=30,
+        alignment=TA_CENTER,
+        textColor=HexColor('#333333')
+    )
+
+    p = Paragraph(text_html_bold, style)
+    
+    rect_w = page_w - 80
+    rect_h = page_h * 0.60
+    rect_x = 40
+    rect_y = (page_h - rect_h) / 2
+    
+    # Líneas superior e inferior
+    c.setStrokeColor(HexColor('#E74C3C'))
+    c.setLineWidth(3)
+    c.line(rect_x, rect_y + rect_h, rect_x + rect_w, rect_y + rect_h)
+    c.line(rect_x, rect_y, rect_x + rect_w, rect_y)
+
+    frame_w = rect_w - 40
+    frame_h = rect_h - 40
+    frame_x = rect_x + 20
+    frame_y = rect_y + 20
+
+    t = Table([[p]], colWidths=[frame_w], rowHeights=[frame_h])
+    t.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+    ]))
+
+    f = Frame(frame_x, frame_y, frame_w, frame_h, showBoundary=0)
+    f.addFromList([t], c)
+    c.save()
+    return buf.getvalue()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  3. Overlay blanco + nuevo número de página
 # ─────────────────────────────────────────────────────────────────────────────
@@ -295,10 +356,10 @@ def build_new_toc_page_text_only(toc_entries: list[dict]) -> bytes:
 
         y -= line_gap
 
-    # ── Número de página 2 al pie ─────────────────────────────────────────────
+    # ── Número de página 3 al pie ─────────────────────────────────────────────
     c.setFont('Times-Roman', 10)
     c.setFillColorRGB(0, 0, 0)
-    c.drawRightString(cx_right, 18, '2')
+    c.drawRightString(cx_right, 18, '3')
 
     c.save()
     return buf.getvalue()
@@ -384,16 +445,17 @@ def generate_filtered_pdf(
 
         # ── 5. Mapa de renumeración: p_original → p_nueva ────────────────────
         # La estructura final del PDF es:
-        #   p1  = portada
-        #   p2  = TOC nueva (insertada por nosotros)
-        #   p3+ = resto de contenido
+        #   p1  = advertencia (nueva)
+        #   p2  = portada
+        #   p3  = TOC nueva (insertada por nosotros)
+        #   p4+ = resto de contenido
         original_to_new: dict[int, int] = {}
         for new_idx, orig_p in enumerate(pages_to_include):
             if orig_p == 1:
-                original_to_new[orig_p] = 1
+                original_to_new[orig_p] = 2
             else:
-                # +2 porque p2 va a ser la TOC nueva
-                original_to_new[orig_p] = new_idx + 2
+                # +3 porque p1 es advertencia y p3 es la TOC nueva
+                original_to_new[orig_p] = new_idx + 3
 
         # ── 6. Filtrar entradas del TOC ───────────────────────────────────────
         new_toc_entries: list[dict] = []
@@ -493,6 +555,11 @@ def generate_filtered_pdf(
                 page = src_pdf.pages[idx + 2]
                 new_page_num = original_to_new[orig_p]
                 apply_page_number_overlay(page, src_pdf, new_page_num)
+
+            # Insertar página de advertencia al inicio (se convierte en p1)
+            warning_bytes = build_warning_page()
+            with pikepdf.open(io.BytesIO(warning_bytes)) as warning_pdf:
+                src_pdf.pages.insert(0, warning_pdf.pages[0])
 
             tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
             tmp_out.close()
