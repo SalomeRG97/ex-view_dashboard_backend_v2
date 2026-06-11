@@ -202,6 +202,8 @@ def parse_toc(pdf_path: str) -> tuple[list[dict], list[int]]:
         traceback.print_exc(file=sys.stderr)
 
     print(f'[pdf_filter] TOC total: {len(entries)} entradas | paginas TOC: {[i+1 for i in toc_indices]}', file=sys.stderr)
+    if entries:
+        print(f'[pdf_filter] TOC primeras 5 entradas: {entries[:5]}', file=sys.stderr)
     return entries, toc_indices
 
 
@@ -516,6 +518,12 @@ def generate_filtered_pdf(
                 print(f'[pdf_filter] TOC omitida (excluida): "{entry["title"]}" pag {orig_p}', file=sys.stderr)
                 continue
             filtered_raw_entries.append(entry)
+        
+        print(f'[pdf_filter] DIAG filtered_raw_entries: {len(filtered_raw_entries)} entradas', file=sys.stderr)
+        print(f'[pdf_filter] DIAG original_to_new keys: {sorted(original_to_new.keys())[:10]}', file=sys.stderr)
+        print(f'[pdf_filter] DIAG pages_to_include[:10]: {pages_to_include[:10]}', file=sys.stderr)
+        if filtered_raw_entries:
+            print(f'[pdf_filter] DIAG primeras 5 filtered_raw: {filtered_raw_entries[:5]}', file=sys.stderr)
 
         # ── 6. Estimar páginas de TOC ─────────────────────────────────────────
         # Generamos un PDF TOC temporal con los números originales para saber cuántas páginas ocupa
@@ -554,6 +562,8 @@ def generate_filtered_pdf(
                 new_toc_entries.append({'title': entry['title'], 'page': new_p, 'is_sub': entry['is_sub']})
             else:
                 print(f'[pdf_filter] TOC sin mapeo (omitida): "{entry["title"]}" pag {orig_p}', file=sys.stderr)
+
+        print(f'[pdf_filter] DIAG new_toc_entries: {len(new_toc_entries)} entradas mapeadas', file=sys.stderr)
 
         # Insertar RESULTADOS antes de la primera anomalia si existe THERMAL ANALYSIS
         for idx, entry in enumerate(new_toc_entries):
