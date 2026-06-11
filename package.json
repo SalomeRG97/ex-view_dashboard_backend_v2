@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node --max-old-space-size=350 server.js",
     "dev": "nodemon server.js",
-    "postinstall": "prisma generate && pip3 install -r pdf_pipeline/requirements.txt"
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

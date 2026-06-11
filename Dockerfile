@@ -16,11 +16,7 @@ WORKDIR /app
 COPY . .
 
 # Instalar dependencias Python del pipeline PDF nativo
-RUN pip3 install --no-cache-dir --break-system-packages \
-    pikepdf>=9.0.0 \
-    pdfplumber>=0.11.0 \
-    reportlab>=4.2.0 \
-    requests>=2.31.0
+RUN pip3 install --no-cache-dir --break-system-packages -r pdf_pipeline/requirements.txt
 
 # Instalar dependencias Node.js
 RUN npm install
@@ -29,7 +25,7 @@ RUN npm install
 RUN npx prisma generate
 
 # Verificaciones
-RUN python3 -c "import pikepdf, pdfplumber, reportlab; print('✅ Python PDF libs OK')"
+RUN python3 -c "import pikepdf, fitz, reportlab; print('✅ Python PDF libs OK')"
 
 EXPOSE 3000
 
