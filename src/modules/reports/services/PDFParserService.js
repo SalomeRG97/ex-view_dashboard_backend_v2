@@ -30,10 +30,11 @@ class PDFParserService {
       // Uso de script en Python para extracción sin saturar la RAM de Node
       const { spawn } = require('child_process');
       const path = require('path');
+      const pythonCmd = process.env.PYTHON_CMD || 'python3';
       
       return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, '../../../../pdf_pipeline/extract_text.py');
-        const python = spawn('python3', [scriptPath, input]);
+        const python = spawn(pythonCmd, [scriptPath, input]);
         
         let outputData = '';
         let errorData = '';

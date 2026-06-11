@@ -1,7 +1,8 @@
 const { Router } = require('express');
-const dashboardRoutes = require('../modules/dashboards/dashboard.routes');
-const reportRoutes    = require('../modules/reports/report.routes');
-const reportController = require('../modules/reports/report.controller');
+const dashboardRoutes    = require('../modules/dashboards/dashboard.routes');
+const reportRoutes       = require('../modules/reports/report.routes');
+const chunkedRoutes      = require('../modules/reports/report.chunked.routes');
+const reportController   = require('../modules/reports/report.controller');
 const { requireAdminAuth } = require('../middlewares/auth.middleware');
 
 const router = Router();
@@ -10,7 +11,10 @@ const router = Router();
 // CRUD dashboards
 router.use('/admin/dashboards', dashboardRoutes);
 
-// Reportes anidados bajo dashboard (upload, listado)
+// Chunked upload (debe montarse ANTES que /reports para que /chunks no sea ambiguo)
+router.use('/admin/dashboards/:dashboardId/reports/chunks', chunkedRoutes);
+
+// Reportes anidados bajo dashboard (upload directo legacy, listado)
 router.use('/admin/dashboards/:dashboardId/reports', reportRoutes);
 
 // Eliminar reporte (admin)
