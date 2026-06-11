@@ -20,12 +20,18 @@ def main():
         # La TOC siempre está en la página 2 (índice 1)
         if num_pages > 1:
             page = doc.load_page(1)
-            page_text = page.get_text() or ""
+            try:
+                page_text = page.get_text("layout") or ""
+            except:
+                page_text = page.get_text("text", sort=True) or ""
             text_full.append(page_text)
             pages.append({"text": page_text})
         elif num_pages == 1:
             page = doc.load_page(0)
-            page_text = page.get_text() or ""
+            try:
+                page_text = page.get_text("layout") or ""
+            except:
+                page_text = page.get_text("text", sort=True) or ""
             text_full.append(page_text)
             pages.append({"text": page_text})
             

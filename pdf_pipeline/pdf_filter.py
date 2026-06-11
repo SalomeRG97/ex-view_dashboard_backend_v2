@@ -101,7 +101,7 @@ def _parse_toc_lines(text: str, entries: list[dict]) -> None:
         is_sub = has_indent or starts_with_section_num
 
         # Patrón A: TÍTULO ...... N  (puntos o espacios entre título y número)
-        m = re.match(r'^\.?\s*(.+?)\s*(?:\.{2,}|\. (?:\. )+)\s*(\d{1,4})\s*$', stripped)
+        m = re.match(r'^\.?\s*(.+?)\s*(?:\.{2,}|\. (?:\. )+|\s{3,})\s*(\d{1,4})\s*$', stripped)
         if m:
             title    = m.group(1).strip().rstrip('. ')
             page_num = int(m.group(2))
@@ -134,7 +134,7 @@ def _looks_like_toc_page(text: str) -> bool:
     (título ... número  ó  número título)
     """
     pattern = re.compile(
-        r'(?:\.{2,}|\. (?:\. )+|\t)\s*\d{1,4}\s*$'   # TÍTULO ...... N  ó  TÍTULO\tN
+        r'(?:\.{2,}|\. (?:\. )+|\t|\s{3,})\s*\d{1,4}\s*$'   # TÍTULO ...... N  ó  TÍTULO\tN ó TÍTULO    N
         r'|^\s*\d{1,4}\s+[A-ZÁÉÍÓÚÑ]',   # N TÍTULO
         re.MULTILINE,
     )
@@ -164,7 +164,10 @@ def parse_toc(pdf_path: str) -> tuple[list[dict], list[int]]:
         # Paso 1: primera pagina del TOC
         for idx in range(min(8, num_pages)):
             page = doc.load_page(idx)
-            text = page.get_text() or ''
+            try:
+                text = page.get_text("layout") or ''
+            except Exception:
+                text = page.get_text("text", sort=True) or ''
             if 'TABLA DE CONTENIDO' in text.upper() or 'CONTENIDO' in text.upper():
                 toc_started = True
                 toc_idx     = idx
@@ -181,7 +184,10 @@ def parse_toc(pdf_path: str) -> tuple[list[dict], list[int]]:
         # Paso 2: paginas de continuacion del TOC
         for idx in range(toc_idx + 1, min(toc_idx + 40, num_pages)):
             page = doc.load_page(idx)
-            text = page.get_text() or ''
+            try:
+                text = page.get_text("layout") or ''
+            except Exception:
+                text = page.get_text("text", sort=True) or ''
             if _looks_like_toc_page(text):
                 toc_indices.append(idx)
                 print(f'[pdf_filter] TOC: continuacion en pag indice {idx} (fisico {idx+1})', file=sys.stderr)
