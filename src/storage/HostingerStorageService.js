@@ -44,9 +44,9 @@ class HostingerStorageService extends StorageService {
    * @returns {Promise<ftp.Client>}
    */
   async _connect() {
-    // 300 000 ms = 5 minutos: tiempo máximo de inactividad del control socket.
-    // Debe ser mayor que el tiempo de subida del PDF más grande esperado.
-    const client = new ftp.Client(300_000);
+    // 3600000 ms = 1 hora: tiempo máximo de inactividad del control socket.
+    // Necesario para evitar timeouts en archivos inmensos (>1GB)
+    const client = new ftp.Client(3600_000);
     client.ftp.verbose = false; // cambiar a true solo para depuración
 
     // Conectar primero
@@ -150,7 +150,17 @@ class HostingerStorageService extends StorageService {
       await client.ensureDir(remoteDir);
       await client.cd(remoteDir);
       const stream = Readable.from(buffer);
+      
+      let lastLog = 0;
+      client.trackProgress(info => {
+        if (info.bytes - lastLog > 50 * 1024 * 1024) { // log cada 50MB
+          console.log(`[FTP Upload] ${filename}: ${(info.bytes / 1024 / 1024).toFixed(1)} MB subidos...`);
+          lastLog = info.bytes;
+        }
+      });
+      
       await client.uploadFrom(stream, filename);
+      client.trackProgress(); // disable tracker
     });
 
     console.log(`[FTP] ✅ Archivo subido: ${destPath} (${Math.round(buffer.length / 1024)}KB)`);
@@ -171,7 +181,17 @@ class HostingerStorageService extends StorageService {
     await this._withRetry(async (client) => {
       await client.ensureDir(remoteDir);
       await client.cd(remoteDir);
+      
+      let lastLog = 0;
+      client.trackProgress(info => {
+        if (info.bytes - lastLog > 50 * 1024 * 1024) { // log cada 50MB
+          console.log(`[FTP Upload] ${filename}: ${(info.bytes / 1024 / 1024).toFixed(1)} MB subidos...`);
+          lastLog = info.bytes;
+        }
+      });
+      
       await client.uploadFrom(localPath, filename);
+      client.trackProgress(); // disable tracker
     });
 
     const stat = fs.statSync(localPath);

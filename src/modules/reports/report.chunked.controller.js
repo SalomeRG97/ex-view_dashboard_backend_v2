@@ -139,7 +139,13 @@ async function completeUpload(req, res, next) {
           await new Promise((res2, rej2) => {
             const rs = fs.createReadStream(chunkPath);
             rs.on('error', rej2);
-            rs.on('end', res2);
+            rs.on('end', () => {
+              // OPTIMIZACIÓN CRÍTICA: Borrar el chunk inmediatamente después de
+              // agregarlo al ensamblado. Esto evita usar el doble de disco (3.2 GB)
+              // y mantiene el uso pico en 1.6 GB, previniendo Evicted por disco.
+              try { fs.unlinkSync(chunkPath); } catch (e) {}
+              res2();
+            });
             rs.pipe(writeStream, { end: false });
           });
         }
@@ -158,10 +164,10 @@ async function completeUpload(req, res, next) {
       size:         stat.size,
     };
 
-    const report = await reportService.uploadReport(dashboardId, mockFile);
-
-    // Limpiar sesión y directorio de chunks
+    // Limpiar sesión y directorio de chunks (que ya debería estar vacío)
     cleanSession(uploadId);
+
+    const report = await reportService.uploadReport(dashboardId, mockFile);
 
     res.status(201).json({
       message: 'PDF ensamblado y procesamiento iniciado en segundo plano.',
