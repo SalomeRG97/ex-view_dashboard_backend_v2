@@ -501,7 +501,6 @@ def generate_filtered_pdf(
                 f'(de {pages_to_include[0]} a {pages_to_include[-1]})',
                 file=sys.stderr,
             )
-
         # ── 5. Filtrar entradas del TOC ───────────────────────────────────────
         excluded_anomaly_pages: set[int] = set()
         for sec in all_sections:
@@ -520,10 +519,6 @@ def generate_filtered_pdf(
             filtered_raw_entries.append(entry)
         
         print(f'[pdf_filter] DIAG filtered_raw_entries: {len(filtered_raw_entries)} entradas', file=sys.stderr)
-        print(f'[pdf_filter] DIAG original_to_new keys: {sorted(original_to_new.keys())[:10]}', file=sys.stderr)
-        print(f'[pdf_filter] DIAG pages_to_include[:10]: {pages_to_include[:10]}', file=sys.stderr)
-        if filtered_raw_entries:
-            print(f'[pdf_filter] DIAG primeras 5 filtered_raw: {filtered_raw_entries[:5]}', file=sys.stderr)
 
         # ── 6. Estimar páginas de TOC ─────────────────────────────────────────
         # Generamos un PDF TOC temporal con los números originales para saber cuántas páginas ocupa
@@ -563,18 +558,56 @@ def generate_filtered_pdf(
             else:
                 print(f'[pdf_filter] TOC sin mapeo (omitida): "{entry["title"]}" pag {orig_p}', file=sys.stderr)
 
-        print(f'[pdf_filter] DIAG new_toc_entries: {len(new_toc_entries)} entradas mapeadas', file=sys.stderr)
+        # ── 8b. Insertar anomalías seleccionadas con su nueva página ──────────
+        # En lugar de un genérico "RESULTADOS", insertar una entrada por cada
+        # sección de anomalía seleccionada, con su label y su nueva página real.
 
-        # Insertar RESULTADOS antes de la primera anomalia si existe THERMAL ANALYSIS
-        for idx, entry in enumerate(new_toc_entries):
-            if 'THERMAL ANALYSIS' in entry['title'].upper():
-                if idx + 1 < len(new_toc_entries):
-                    next_page = new_toc_entries[idx + 1]['page']
-                    if 'RESULTADOS' not in new_toc_entries[idx + 1]['title'].upper():
-                        new_toc_entries.insert(idx + 1, {'title': 'RESULTADOS', 'page': next_page, 'is_sub': False})
-                break
+        # Construir mapa: pageStart original → nueva página
+        section_page_map: dict[int, int] = {}
+        for sec in selected_sections:
+            orig_start = int(sec['pageStart'])
+            new_p = original_to_new.get(orig_start)
+            if new_p is None:
+                for cand in sorted_orig_keys:
+                    if cand >= orig_start:
+                        new_p = original_to_new[cand]
+                        break
+            if new_p is not None:
+                section_page_map[orig_start] = new_p
+
+        # Construir entradas de anomalías en orden de pageStart
+        anomaly_entries = []
+        for sec in sorted(selected_sections, key=lambda s: int(s['pageStart'])):
+            label = sec.get('label') or sec.get('type') or 'Anomalía'
+            orig_start = int(sec['pageStart'])
+            new_p = section_page_map.get(orig_start)
+            if new_p is not None:
+                anomaly_entries.append({'title': label.upper(), 'page': new_p, 'is_sub': True})
+                print(f'[pdf_filter] TOC anomalía: "{label}" pag orig={orig_start} → nueva={new_p}', file=sys.stderr)
+            else:
+                print(f'[pdf_filter] TOC anomalía sin mapeo (omitida): "{label}" pag {orig_start}', file=sys.stderr)
+
+        if anomaly_entries:
+            first_anomaly_new_page = anomaly_entries[0]['page']
+            # Reemplazar la entrada genérica "RESULTADOS" si existe, o insertar después de la sección previa
+            existing_results_idx = next(
+                (i for i, e in enumerate(new_toc_entries) if 'RESULTADOS' in e['title'].upper()),
+                None
+            )
+            if existing_results_idx is not None:
+                new_toc_entries[existing_results_idx:existing_results_idx + 1] = anomaly_entries
+            else:
+                # Insertar justo antes de cualquier entrada con página >= la primera anomalía
+                insert_idx = len(new_toc_entries)
+                for idx2, entry in enumerate(new_toc_entries):
+                    if entry['page'] >= first_anomaly_new_page:
+                        insert_idx = idx2
+                        break
+                for i, ae in enumerate(anomaly_entries):
+                    new_toc_entries.insert(insert_idx + i, ae)
 
         print(f'[pdf_filter] Entradas TOC nuevo: {len(new_toc_entries)}', file=sys.stderr)
+
 
         # ── 9. Generar TOC nueva texto (final) ────────────────────────────────
         toc_text_bytes = build_new_toc_pages(new_toc_entries)
