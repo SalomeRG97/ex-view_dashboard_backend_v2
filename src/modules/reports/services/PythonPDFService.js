@@ -22,8 +22,9 @@ const PYTHON_SCRIPT = path.join(__dirname, '..', '..', '..', '..', 'pdf_pipeline
 // Comando Python: en producción (Linux/Docker) es 'python3', en Windows puede ser 'python'
 const PYTHON_CMD = process.env.PYTHON_CMD || (process.platform === 'win32' ? 'python' : 'python3');
 
-// Tiempo máximo de espera para que Python genere el PDF (ms)
-const PYTHON_TIMEOUT_MS = parseInt(process.env.PYTHON_TIMEOUT_MS || '300000', 10); // 5 minutos
+// Tiempo máximo de espera para que Python genere el PDF (ms).
+// Para 1.6 GB: ~22 min descarga + ~5 min pikepdf = ~27 min → 40 min de margen.
+const PYTHON_TIMEOUT_MS = parseInt(process.env.PYTHON_TIMEOUT_MS || '2400000', 10); // 40 minutos
 
 class PythonPDFService {
   /**

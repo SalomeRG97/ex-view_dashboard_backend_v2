@@ -177,7 +177,7 @@ class ReportService {
     );
 
     // Delegar toda la generación al servicio Python
-    const pdfBuffer = await pythonPDFService.generate({
+    const result = await pythonPDFService.generate({
       pdfUrl,
       selectedSections,
       allSections,
@@ -186,11 +186,11 @@ class ReportService {
 
     const mem = process.memoryUsage();
     console.log(
-      `[ReportService] PDF filtrado generado. Tamaño: ${(pdfBuffer.length / 1024).toFixed(1)} KB. ` +
+      `[ReportService] PDF filtrado generado. Tamaño: ${(result.size / 1024).toFixed(1)} KB. ` +
       `RSS: ${Math.round(mem.rss / 1024 / 1024)}MB`
     );
 
-    return pdfBuffer;
+    return result;
   }
 
   /**
