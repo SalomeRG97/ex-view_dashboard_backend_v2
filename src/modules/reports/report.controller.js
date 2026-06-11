@@ -182,24 +182,32 @@ class ReportController {
       res.setHeader('Content-Disposition', `attachment; filename="${originalName}"`);
       res.setHeader('Content-Length', size);
 
+      const { pipeline } = require('stream');
       const fs = require('fs');
       const stream = fs.createReadStream(tmpFile);
       
-      stream.on('open', () => {
-        stream.pipe(res);
+      // Manejar abortos del cliente (ej: si el usuario cancela la descarga o cierra la pestaña)
+      req.on('close', () => {
+        if (!stream.destroyed) {
+          console.log('[Download Filtered] La conexión HTTP se cerró prematuramente. Destruyendo el stream de lectura.');
+          stream.destroy();
+        }
       });
-      
-      stream.on('error', (err) => {
-        console.error(`[Download Filtered] Error leyendo el archivo temporal:`, err);
-        next(err);
-      });
-      
-      res.on('finish', () => {
+
+      pipeline(stream, res, (err) => {
         logMemory('After Streaming');
-        console.log('[Download Filtered] Transmisión del PDF filtrado completada exitosamente.');
-        // Limpiar el archivo temporal
-        fs.unlink(tmpFile, (err) => {
-          if (err) console.error(`[Download Filtered] No se pudo borrar el archivo temporal ${tmpFile}:`, err);
+        if (err) {
+          console.error('[Download Filtered] Error en el pipeline de descarga filtrada:', err.message);
+        } else {
+          console.log('[Download Filtered] Transmisión del PDF filtrado completada exitosamente.');
+        }
+        // Siempre limpiar el archivo temporal, independientemente de si hubo error o no
+        fs.unlink(tmpFile, (unlinkErr) => {
+          if (unlinkErr && unlinkErr.code !== 'ENOENT') {
+            console.error(`[Download Filtered] No se pudo borrar el archivo temporal ${tmpFile}:`, unlinkErr);
+          } else {
+            console.log(`[Download Filtered] Archivo temporal limpiado: ${tmpFile}`);
+          }
         });
       });
 

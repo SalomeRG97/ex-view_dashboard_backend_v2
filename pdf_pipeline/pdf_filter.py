@@ -636,9 +636,13 @@ def generate_filtered_pdf(
 
             tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
             tmp_out.close()
-            src_pdf.save(tmp_out.name)
             result_path = tmp_out.name
-
+            try:
+                src_pdf.save(result_path)
+            except Exception:
+                os.unlink(result_path)
+                raise
+            
     total_final = len(pages_to_include) + K  # advertencia(1) + portada(1) -1 (1 orig toc included) + K + content... wait
     print(
         f'[pdf_filter] PDF final guardado en disco (IN-PLACE). '
