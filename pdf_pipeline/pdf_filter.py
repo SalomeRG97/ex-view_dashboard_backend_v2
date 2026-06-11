@@ -35,7 +35,7 @@ from typing import Optional
 
 
 import pikepdf
-import pdfplumber
+import fitz
 import requests
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -156,35 +156,40 @@ def parse_toc(pdf_path: str) -> tuple[list[dict], list[int]]:
     entries: list[dict]  = []
     toc_indices: list[int] = []
     try:
-        with pdfplumber.open(pdf_path) as pdf:
-            num_pages   = len(pdf.pages)
-            toc_started = False
-            toc_idx     = -1
+        doc = fitz.open(pdf_path)
+        num_pages   = doc.page_count
+        toc_started = False
+        toc_idx     = -1
 
-            # Paso 1: primera pagina del TOC
-            for idx in range(min(8, num_pages)):
-                text = pdf.pages[idx].extract_text() or ''
-                if 'TABLA DE CONTENIDO' in text.upper() or 'CONTENIDO' in text.upper():
-                    toc_started = True
-                    toc_idx     = idx
-                    toc_indices.append(idx)
-                    print(f'[pdf_filter] TOC: primera pag en indice {idx} (fisico {idx+1})', file=sys.stderr)
-                    _parse_toc_lines(text, entries)
-                    break
+        # Paso 1: primera pagina del TOC
+        for idx in range(min(8, num_pages)):
+            page = doc.load_page(idx)
+            text = page.get_text() or ''
+            if 'TABLA DE CONTENIDO' in text.upper() or 'CONTENIDO' in text.upper():
+                toc_started = True
+                toc_idx     = idx
+                toc_indices.append(idx)
+                print(f'[pdf_filter] TOC: primera pag en indice {idx} (fisico {idx+1})', file=sys.stderr)
+                _parse_toc_lines(text, entries)
+                break
 
-            if not toc_started:
-                print('[pdf_filter] WARN: No se encontro pagina de indice.', file=sys.stderr)
-                return [], []
+        if not toc_started:
+            print('[pdf_filter] WARN: No se encontro pagina de indice.', file=sys.stderr)
+            doc.close()
+            return [], []
 
-            # Paso 2: paginas de continuacion del TOC
-            for idx in range(toc_idx + 1, min(toc_idx + 40, num_pages)):
-                text = pdf.pages[idx].extract_text() or ''
-                if _looks_like_toc_page(text):
-                    toc_indices.append(idx)
-                    print(f'[pdf_filter] TOC: continuacion en pag indice {idx} (fisico {idx+1})', file=sys.stderr)
-                    _parse_toc_lines(text, entries)
-                else:
-                    break
+        # Paso 2: paginas de continuacion del TOC
+        for idx in range(toc_idx + 1, min(toc_idx + 40, num_pages)):
+            page = doc.load_page(idx)
+            text = page.get_text() or ''
+            if _looks_like_toc_page(text):
+                toc_indices.append(idx)
+                print(f'[pdf_filter] TOC: continuacion en pag indice {idx} (fisico {idx+1})', file=sys.stderr)
+                _parse_toc_lines(text, entries)
+            else:
+                break
+        
+        doc.close()
 
     except Exception as exc:
         print(f'[pdf_filter] ERROR en parse_toc: {exc}', file=sys.stderr)
@@ -428,8 +433,6 @@ def generate_filtered_pdf(
 
     # ── 1. Parsear TOC original ───────────────────────────────────────────────
     toc_raw, toc_page_indices = parse_toc(pdf_path)
-    import gc
-    gc.collect()  # liberar memoria de pdfplumber antes de abrir con pikepdf
 
     # Paginas fisicas del TOC (1-indexed). Ej: {2, 3} si el TOC ocupa 2 paginas.
     toc_physical_pages  = {idx + 1 for idx in toc_page_indices}  # e.g. {2, 3}

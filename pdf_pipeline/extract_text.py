@@ -1,6 +1,6 @@
 import sys
 import json
-import pdfplumber
+import fitz
 
 def main():
     if len(sys.argv) < 2:
@@ -9,26 +9,28 @@ def main():
         
     path = sys.argv[1]
     
-    # Intentar optimizar el uso de memoria para PDFs gigantes
     text_full = []
     pages = []
     
     try:
-        with pdfplumber.open(path) as pdf:
-            num_pages = len(pdf.pages)
+        # PyMuPDF is extremely fast and uses very little RAM
+        doc = fitz.open(path)
+        num_pages = doc.page_count
+        
+        # La TOC siempre está en la página 2 (índice 1)
+        if num_pages > 1:
+            page = doc.load_page(1)
+            page_text = page.get_text() or ""
+            text_full.append(page_text)
+            pages.append({"text": page_text})
+        elif num_pages == 1:
+            page = doc.load_page(0)
+            page_text = page.get_text() or ""
+            text_full.append(page_text)
+            pages.append({"text": page_text})
             
-            # La TOC siempre está en la página 2 (índice 1)
-            # Solo extraer texto de la página 2
-            if num_pages > 1:
-                page_text = pdf.pages[1].extract_text() or ""
-                text_full.append(page_text)
-                pages.append({"text": page_text})
-            elif num_pages == 1:
-                page_text = pdf.pages[0].extract_text() or ""
-                text_full.append(page_text)
-                pages.append({"text": page_text})
-                
-        # Unir todo el texto
+        doc.close()
+            
         full_string = "\n".join(text_full)
         
         print(json.dumps({
