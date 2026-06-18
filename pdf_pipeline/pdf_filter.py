@@ -529,16 +529,15 @@ def generate_filtered_pdf(
 
         # ── 7. Mapa de renumeración: p_original → p_nueva ─────────────────────
         # La estructura final del PDF es:
-        #   p1  = advertencia (nueva)
-        #   p2  = portada
-        #   p3..p(2+K) = TOC nueva (insertada por nosotros)
-        #   p(3+K)+ = resto de contenido
+        #   p1  = portada
+        #   p2..p(1+K) = TOC nueva (insertada por nosotros)
+        #   p(2+K)+ = resto de contenido
         original_to_new: dict[int, int] = {}
         for new_idx, orig_p in enumerate(pages_to_include):
             if orig_p == 1:
-                original_to_new[orig_p] = 2
+                original_to_new[orig_p] = 1
             else:
-                original_to_new[orig_p] = new_idx + 2 + K
+                original_to_new[orig_p] = new_idx + 1 + K
 
         # ── 8. Actualizar números de página en entradas del TOC ───────────────
         new_toc_entries: list[dict] = []
@@ -680,11 +679,6 @@ def generate_filtered_pdf(
                 page = src_pdf.pages[idx + 1 + K]
                 new_page_num = original_to_new[orig_p]
                 apply_page_number_overlay(page, src_pdf, new_page_num)
-
-            # Insertar página de advertencia al inicio (se convierte en p1)
-            warning_bytes = build_warning_page()
-            with pikepdf.open(io.BytesIO(warning_bytes)) as warning_pdf:
-                src_pdf.pages.insert(0, warning_pdf.pages[0])
 
             tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
             tmp_out.close()
