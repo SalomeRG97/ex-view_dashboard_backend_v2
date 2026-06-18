@@ -14,7 +14,7 @@ const ANOMALY_TYPES = [
   { type: 'pid',                  label: 'PID',                 keywords: ['pid', 'potential induced degradation'] },
   { type: 'diode_failure',        label: 'Falla en diodo',      keywords: ['diode failure', 'falla en diodo', 'diodo bypass', 'diodo by-pass', 'bypass diode', 'falla de diodo', 'bypass_diode', 'falla en diodo bypass', 'falla de diodo bypass'] },
   { type: 'string_failure',       label: 'String desconectado', keywords: ['string failure', 'falla de string', 'string desconectado', 'string_failure', 'desconectado', 'string'] },
-  { type: 'other',                label: 'Otros',               keywords: ['otros', 'other'] },
+  { type: 'other',                label: 'Otro',               keywords: ['otros', 'other', 'otro'] },
   { type: 'broken_glass_hotspot', label: 'Daño físico',         keywords: ['broken glass', 'daño físico', 'dano fisico', 'broken_glass_hotspot', 'daño fisico', 'daño fisico por hotspot', 'vidrio roto', 'daño físico'] },
   { type: 'reverse_polarity',     label: 'Polaridad inversa',   keywords: ['reverse polarity', 'polaridad inversa'] },
 ];

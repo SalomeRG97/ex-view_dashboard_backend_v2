@@ -472,6 +472,20 @@ def generate_filtered_pdf(
         print(f'[pdf_filter] PDF fuente: {total_pages} páginas', file=sys.stderr)
 
         # ── 4. Determinar páginas a incluir ───────────────────────────────────
+        # Identificar paginas de CONCLUSIONES para excluirlas
+        pages_to_exclude_explicitly: set[int] = set()
+        for i, entry in enumerate(toc_raw):
+            if 'CONCLUSIONES' in entry['title'].upper():
+                c_start = entry['page_num']
+                c_end = total_pages
+                for j in range(i + 1, len(toc_raw)):
+                    if toc_raw[j]['page_num'] > c_start:
+                        c_end = toc_raw[j]['page_num'] - 1
+                        break
+                for p in range(c_start, c_end + 1):
+                    pages_to_exclude_explicitly.add(p)
+                print(f'[pdf_filter] Excluyendo CONCLUSIONES, paginas {c_start} a {c_end}', file=sys.stderr)
+
         pages_to_include: list[int] = []
 
         # 4a. Portada (siempre)
@@ -479,18 +493,18 @@ def generate_filtered_pdf(
 
         # 4b. Pre-resultados: desde la primera pagina de contenido real
         for p in range(content_start_page, first_anomaly_start):
-            if p <= total_pages and p not in toc_physical_pages:
+            if p <= total_pages and p not in toc_physical_pages and p not in pages_to_exclude_explicitly:
                 pages_to_include.append(p)
 
         # 4c. Páginas de anomalías seleccionadas
         for sec in selected_sections:
             for p in range(int(sec['pageStart']), int(sec['pageEnd']) + 1):
-                if p <= total_pages and p not in pages_to_include:
+                if p <= total_pages and p not in pages_to_include and p not in pages_to_exclude_explicitly:
                     pages_to_include.append(p)
 
         # 4d. Post-resultados: páginas después del último bloque de anomalías
         for p in range(last_anomaly_end + 1, total_pages + 1):
-            if p not in pages_to_include:
+            if p not in pages_to_include and p not in pages_to_exclude_explicitly:
                 pages_to_include.append(p)
 
         pages_to_include = sorted(set(pages_to_include))
@@ -513,7 +527,7 @@ def generate_filtered_pdf(
         filtered_raw_entries = []
         for entry in toc_raw:
             orig_p = entry['page_num']
-            if orig_p in excluded_anomaly_pages:
+            if orig_p in excluded_anomaly_pages or orig_p in pages_to_exclude_explicitly:
                 print(f'[pdf_filter] TOC omitida (excluida): "{entry["title"]}" pag {orig_p}', file=sys.stderr)
                 continue
             filtered_raw_entries.append(entry)
