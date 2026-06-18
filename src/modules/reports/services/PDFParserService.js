@@ -119,25 +119,58 @@ class PDFParserService {
       return [];
     }
 
-    // Buscar la página de la Tabla de Contenido (usualmente en la hoja 2)
-    const tocPage = pages.slice(0, 5).find(p => p.text && p.text.includes('TABLA DE CONTENIDO'));
-    if (!tocPage) return [];
+    const tocPages = [];
+    let foundToc = false;
+    for (let i = 0; i < Math.min(15, pages.length); i++) {
+      const p = pages[i];
+      const t = (p.text || '').toUpperCase();
+      if (!foundToc && (t.includes('TABLA DE CONTENIDO') || t.includes('CONTENIDO') || t.includes('ÍNDICE'))) {
+        foundToc = true;
+        tocPages.push(p);
+      } else if (foundToc) {
+        const lines = (p.text || '').split('\n').map(l => l.trim()).filter(Boolean);
+        const matchCount = lines.filter(l => l.match(/(?:\.{2,}|\s{3,})\s*\d{1,4}\s*$|^\s*\d{1,4}\s+/)).length;
+        if (lines.length > 0 && matchCount >= 2) {
+          tocPages.push(p);
+        } else {
+          break;
+        }
+      }
+    }
 
-    const lines = tocPage.text.split('\n');
+    if (tocPages.length === 0) return [];
+
+    let lines = [];
+    for (const p of tocPages) {
+      lines = lines.concat((p.text || '').split('\n'));
+    }
+
     const tocEntries = [];
 
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
 
-      // Expresión regular robusta para detectar páginas y títulos del índice
-      const match = trimmed.match(/^(?:\.\s*)*(\d+)\s*\t+\s*(.+?)(?:\s*\.+\s*)*$/) ||
-                    trimmed.match(/^(?:\.\s*)*(\d+)\s+(.+?)(?:\s*\.+\s*)*$/);
+      const mC = trimmed.match(/^(.+?)\t+(\d{1,4})\s*$/);
+      const mA = trimmed.match(/^\.?\s*(.+?)\s*(?:\.{2,}|\.\s+(?:\.\s+)+|\s{3,})\s*(\d{1,4})\s*$/);
+      const mB = trimmed.match(/^\s*(\d{1,4})\s+(.+?)(?:\s*\.{2,})?$/);
 
-      if (match) {
-        const pageNum = parseInt(match[1], 10);
-        const title = match[2].trim().replace(/\.+$/, '').trim();
-        const isSub = line.trim().startsWith('.');
+      let pageNum = null;
+      let title = null;
+
+      if (mA) {
+        title = mA[1].trim().replace(/\.+$/, '').trim();
+        pageNum = parseInt(mA[2], 10);
+      } else if (mB) {
+        pageNum = parseInt(mB[1], 10);
+        title = mB[2].trim().replace(/\.+$/, '').trim();
+      } else if (mC) {
+        title = mC[1].trim().replace(/\.+$/, '').trim();
+        pageNum = parseInt(mC[2], 10);
+      }
+
+      if (pageNum !== null && title !== null) {
+        const isSub = line.trim().startsWith('.') || mB !== null; // aproximación de subsección
         tocEntries.push({ title, originalPageNum: pageNum, isSub });
       }
     }
