@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
+const { generalQueue } = require('./src/middlewares/queues');
 
 const { testConnection } = require('./db/connection');
 const dashboardRoutes = require('./routes/dashboard');
@@ -43,13 +44,14 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ── API Routes ──────────────────────────────────────────────
+
 // Montadas en / → GET /assets, GET /dashboard-data
 // Aplicamos el rate limiter a estas rutas críticas
-app.use('/assets', apiLimiter);
-app.use('/dashboard-data', apiLimiter);
-app.use('/login', apiLimiter);
+app.use('/assets', generalQueue, apiLimiter);
+app.use('/dashboard-data', generalQueue, apiLimiter);
+app.use('/login', generalQueue, apiLimiter);
 app.use('/api', adminRoutes);
-app.use('/', dashboardRoutes);
+app.use('/', generalQueue, dashboardRoutes);
 
 // ── Error Handler (Multer, validaciones, etc.) ──────────────
 app.use(errorHandler);
